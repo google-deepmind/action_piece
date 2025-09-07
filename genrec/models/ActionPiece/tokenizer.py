@@ -41,7 +41,6 @@ class ActionPieceTokenizer(AbstractTokenizer):
       actionpiece (ActionPieceCore): ActionPiece core tokenizer.
       bos_token (int): The beginning token.
       eos_token (int): The end token.
-      n_prob_encode_plus (int): The number of probability encoding plus.
       n_inference_ensemble (int): The number of inference ensemble.
       train_shuffle (str): The shuffle strategy for training.
       encoded_labels (dict): A dictionary mapping label sequences to their
@@ -58,7 +57,6 @@ class ActionPieceTokenizer(AbstractTokenizer):
     self.actionpiece = self._init_tokenizer(dataset)
     self.bos_token = self.actionpiece.vocab_size
     self.eos_token = self.actionpiece.vocab_size + 1
-    self.n_prob_encode_plus = self.config['n_prob_encode_plus']
     self.n_inference_ensemble = config['n_inference_ensemble']
     self.train_shuffle = config['train_shuffle']
     self.encoded_labels = {}
@@ -222,7 +220,7 @@ class ActionPieceTokenizer(AbstractTokenizer):
       with open(sem_ids_path, 'r') as f:
         item2sem_ids = json.load(f)
       return {
-          k: v[: self.config['rq_n_codebooks']] for k, v in item2sem_ids.items()
+          k: v[: self.config['pq_n_codebooks']] for k, v in item2sem_ids.items()
       }
 
   def _get_attr_ids(self, dataset: AbstractDataset):
