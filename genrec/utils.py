@@ -30,7 +30,6 @@ import accelerate.utils
 import datasets.utils.logging
 from genrec.dataset import AbstractDataset
 from genrec.model import AbstractModel
-from genrec.trainer import Trainer
 import numpy as np
 import requests
 import torch
@@ -158,12 +157,21 @@ def log(message, accelerator, logger, level='info'):
       level (str): The log level ('info', 'error', 'warning', 'debug').
   """
   if accelerator.is_main_process:
+    # Map level names to their numeric values for compatibility with older Python versions
+    level_mapping = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    
     try:
-      level = logging.getLevelNamesMapping()[level.upper()]
+      level_num = level_mapping[level.upper()]
     except KeyError as exc:
       raise ValueError(f'Invalid log level: {level}') from exc
 
-    logger.log(level, message)
+    logger.log(level_num, message)
 
 
 def get_tokenizer(model_name: str):
@@ -182,7 +190,7 @@ def get_tokenizer(model_name: str):
   module_name = f'genrec.models.{model_name}.tokenizer'
   try:
     module = importlib.import_module(module_name)
-    getattr(module, f'{model_name}Tokenizer')
+    return getattr(module, f'{model_name}Tokenizer')
   except Exception as exc:
     raise ValueError(f'Tokenizer for model "{model_name}" not found.') from exc
 
@@ -246,12 +254,16 @@ def get_trainer(model_name: Union[str, AbstractModel]):
       trainer_class: The trainer class corresponding to the given model name. If
       the model name is not found, the default Trainer class is returned.
   """
+  from genrec.trainer import Trainer
   if isinstance(model_name, str):
-    trainer_class = getattr(
-        importlib.import_module(f'genrec.models.{model_name}.trainer'),
-        f'{model_name}Trainer',
-    )
-    return trainer_class
+    try:
+      trainer_class = getattr(
+          importlib.import_module(f'genrec.models.{model_name}.trainer'),
+          f'{model_name}Trainer',
+      )
+      return trainer_class
+    except (ImportError, AttributeError):
+      return Trainer
 
   return Trainer
 
@@ -286,6 +298,18 @@ def _convert_value(value: str) -> Any:
     return True
   if value.lower() == 'false':
     return False
+  
+  # Try to use eval for complex types (list, dict, tuple) but with safety checks
+  try:
+    new_v = eval(value)
+    if new_v is not None and isinstance(
+        new_v, (str, int, float, bool, list, dict, tuple)
+    ):
+      return new_v
+  except (NameError, SyntaxError, TypeError, ValueError):
+    pass
+  
+  # Try basic numeric conversions
   try:
     return int(value)
   except ValueError:
@@ -294,10 +318,7 @@ def _convert_value(value: str) -> Any:
     return float(value)
   except ValueError:
     pass
-  try:
-    return list(map(lambda x: x.strip(), value.strip('[]').split(',')))
-  except (ValueError, TypeError):
-    pass
+  
   return value
 
 

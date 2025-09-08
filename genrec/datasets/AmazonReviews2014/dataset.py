@@ -15,6 +15,7 @@
 
 """Dataset for Amazon Reviews 2014."""
 
+import ast
 import collections
 import gzip
 import json
@@ -80,8 +81,18 @@ def parse_gz(path: str):
   """
   with gzip.open(path, 'r') as g:
     for l in g:
-      l = l.replace(b'true', b'True').replace(b'false', b'False')
-      yield json.loads(l)
+      try:
+        # Try to parse as standard JSON first
+        yield json.loads(l.decode('utf-8'))
+      except json.JSONDecodeError:
+        try:
+          # If that fails, try with Python literal evaluation after some replacements
+          l_str = l.decode('utf-8')
+          l_str = l_str.replace('true', 'True').replace('false', 'False').replace('null', 'None')
+          yield ast.literal_eval(l_str)
+        except (ValueError, SyntaxError):
+          # If both fail, skip this line and continue
+          continue
 
 
 def get_item_seqs(
@@ -274,7 +285,7 @@ class AmazonReviews2014(AbstractDataset):
     self.log('[DATASET] Loading metadata...')
     data = {}
     item_asins = set(item2id.keys())
-    for info in tqdm.tqdm(self._parse_gz(path)):
+    for info in tqdm.tqdm(parse_gz(path)):
       if info['asin'] not in item_asins:
         continue
       data[info['asin']] = info
@@ -319,7 +330,7 @@ class AmazonReviews2014(AbstractDataset):
     """
     self.log('[DATASET] Extracting meta sentences...')
     item2meta = {}
-    for item, meta in tqdm(metadata.items()):
+    for item, meta in tqdm.tqdm(metadata.items()):
       meta_sentence = ''
       keys = set(meta.keys())
       features_needed = [

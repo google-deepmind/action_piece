@@ -17,7 +17,7 @@
 sent_emb_model: sentence-transformers/sentence-t5-base
 sent_emb_batch_size: 512
 sent_emb_dim: 768
-sent_emb_pca: 128 # -1 means no PCA, otherwise PCA dimension
+sent_emb_pca: -1 # -1 means no PCA, otherwise PCA dimension
 
 # Config for features
 n_threads: 32
@@ -29,7 +29,6 @@ n_hash_buckets: 128
 actionpiece_vocab_size: 40000
 
 # Config for the model
-n_prob_encode_plus: 0
 num_beams: 50 # Number of beams for beam search
 n_inference_ensemble: 5 # Number of inference ensemble
 train_shuffle: feature # none / feature / token

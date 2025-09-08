@@ -102,8 +102,9 @@ class ActionPiece(AbstractModel):
     """
     n_ensemble = 1
     if self.n_inference_ensemble != -1:
-      assert batch['input_ids'].shape[0] % self.n_inference_ensemble == 0
-      n_ensemble = self.n_inference_ensemble
+      if batch['input_ids'].shape[0] != batch['labels'].shape[0]:
+        assert batch['input_ids'].shape[0] % self.n_inference_ensemble == 0
+        n_ensemble = self.n_inference_ensemble
     batch_size = batch['input_ids'].shape[0] // n_ensemble
 
     outputs = self.beam_search(

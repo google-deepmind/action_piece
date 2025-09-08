@@ -19,7 +19,6 @@ import logging
 
 from typing import Any
 import datasets as datasets_lib
-from genrec.utils import log as log_lib
 
 
 class AbstractDataset:
@@ -157,6 +156,7 @@ class AbstractDataset:
 
   def log(self, message: str, level: str = 'info') -> None:
     """Logs a message with the specified level."""
+    from genrec.utils import log as log_lib
     return log_lib(
         message, self.config['accelerator'], self.logger, level=level
     )

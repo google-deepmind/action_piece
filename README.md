@@ -1,7 +1,7 @@
 # ActionPiece: Contextual Action Tokenization
 
 This repository provides the code for implementing ActionPiece described in our
-**ICML 25 Spotlight** paper "[Contextually Tokenizing Action Sequences forGenerative Recommendation](https://arxiv.org/abs/2502.13581)".
+**ICML 25 Spotlight** paper "[Contextually Tokenizing Action Sequences for Generative Recommendation](https://arxiv.org/abs/2502.13581)".
 
 Unlike existing generative recommendation (GR) models that tokenize each action
 independently, we propose ActionPiece, a method that

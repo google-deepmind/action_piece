@@ -17,7 +17,7 @@
 
 import logging
 import os
-from typing import Any
+from typing import Any, Dict, Union
 
 import accelerate as accelerate_lib
 from genrec import utils
@@ -59,11 +59,11 @@ class Pipeline:
 
   def __init__(
       self,
-      model_name: str | AbstractModel,
-      dataset_name: str | AbstractDataset,
-      tokenizer: AbstractTokenizer | None = None,
+      model_name: Union[str, AbstractModel],
+      dataset_name: Union[str, AbstractDataset],
+      tokenizer: Union[AbstractTokenizer, None] = None,
       trainer=None,
-      config_dict: dict[str, Any] | None = None,
+      config_dict: Union[Dict[str, Any], None] = None,
       config_file: str = None,
   ):
     self.config = utils.get_config(
@@ -151,15 +151,17 @@ class Pipeline:
     train_dataloader = get_dataloader(
         'train', self.config['train_batch_size'], True
     )
+    val_dataloader = get_dataloader(
+        'val', self.config['eval_batch_size'], False
+    )
     if self.config['n_inference_ensemble'] == -1:
-      eval_batch_size = self.config['eval_batch_size']
+      test_batch_size = self.config['eval_batch_size']
     else:
-      eval_batch_size = max(
+      test_batch_size = max(
           self.config['eval_batch_size'] // self.config['n_inference_ensemble'],
           1,
       )
-    val_dataloader = get_dataloader('val', eval_batch_size, False)
-    test_dataloader = get_dataloader('test', eval_batch_size, False)
+    test_dataloader = get_dataloader('test', test_batch_size, False)
 
     self.trainer.fit(train_dataloader, val_dataloader)
 

@@ -22,3 +22,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+cache/
+logs/
+tensorboard/
+ckpt/

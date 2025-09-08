@@ -23,7 +23,7 @@ rand_seed: 2024
 reproducibility: True
 
 train_batch_size: 256
-eval_batch_size: 32
+eval_batch_size: 128
 lr: 0.003
 weight_decay: 0.1
 warmup_steps: 10000
@@ -31,7 +31,7 @@ steps: ~
 epochs: 200
 max_grad_norm: 1.0      # None for no clipping, else a float value
 eval_interval: 1        # Evaluate every n epochs
-patience: 20            # Early stopping. Stop training after n epochs without improvement. Set to None to disable
+patience: 50            # Early stopping. Stop training after n epochs without improvement. Set to None to disable
 
 topk: [5,10,20,50]
 metrics: [ndcg,recall,err]
