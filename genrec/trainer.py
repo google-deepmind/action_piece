@@ -203,7 +203,7 @@ class Trainer:
     if self.use_wandb and self.accelerator.is_main_process:
         self._init_wandb()
 
-  def _init_wandb(self):
+def _init_wandb(self):
     """初始化 WandB"""
     try:
         # 准备运行名称
@@ -227,24 +227,44 @@ class Trainer:
             notes = f"ActionPiece training on {self.config.get('category', 'unknown')} dataset"
         
         # 初始化 WandB
-        wandb.init(
+        run = wandb.init(
             project=self.config.get('wandb_project', 'actionpiece'),
             entity=self.config.get('wandb_entity'),
             name=run_name,
             config=wandb_config,
             tags=tags,
             notes=notes,
-            save_code=True,  # 保存代码
-            reinit=True  # 允许重新初始化
+            save_code=True,
+            reinit=True
         )
+        
+        # 获取并打印WandB链接
+        wandb_url = run.get_url()
+        project_name = self.config.get('wandb_project', 'actionpiece')
+        category = self.config.get('category', 'unknown')
+        
+        # 美观的输出
+        print("\n" + "🚀 " + "="*77)
+        print("   WEIGHTS & BIASES DASHBOARD READY")
+        print("   " + "-"*50)
+        print(f"   Dataset:  {category}")
+        print(f"   Project:  {project_name}")
+        print(f"   Run:      {run_name}")
+        print(f"   URL:      {wandb_url}")
+        print("   " + "-"*50)
+        print("   📊 Click the link above to monitor training progress!")
+        print("="*80 + "\n")
         
         # 监控模型
         wandb.watch(self.model, log='all', log_freq=100)
         
-        self.log("WandB initialized successfully")
+        self.log(f"WandB initialized: {wandb_url}")
+        self.wandb_url = wandb_url
+        
     except Exception as e:
         self.log(f"Failed to initialize WandB: {e}", level='warning')
         self.use_wandb = False
+        self.wandb_url = None
 
   def fit(self, train_dataloader, val_dataloader):
     """Trains the model using the provided training and validation dataloaders.

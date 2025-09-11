@@ -19,6 +19,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --category=Beauty \
     --weight_decay=0.15 \
     --lr=0.001 \
-    --n_hash_buckets=64
+    --n_hash_buckets=64 \
+    --use_wandb 
 
 conda deactivate

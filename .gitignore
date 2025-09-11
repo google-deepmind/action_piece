@@ -28,3 +28,4 @@ cache/
 logs/
 tensorboard/
 ckpt/
+jobs/
