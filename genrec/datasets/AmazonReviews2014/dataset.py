@@ -69,7 +69,6 @@ def check_available_category(category: str):
   )
 
 
-# 请将这个函数直接替换 genrec/datasets/AmazonReviews2014/dataset.py 中的 parse_gz 函数
 
 def parse_gz(path: str):
   """Parse a gzipped file and yield each line as a dict.

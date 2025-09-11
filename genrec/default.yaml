@@ -36,3 +36,17 @@ patience: 20            # Early stopping. Stop training after n epochs without i
 topk: [5,10,20,50]
 metrics: [ndcg,recall,err]
 val_metric: ndcg@10
+
+
+# WandB
+use_wandb: false
+wandb_project: "actionpiece"
+wandb_entity: null
+wandb_name: null
+wandb_tags: []
+wandb_notes: null
+
+rand_seed: 42  # 添加默认随机种子
+reproducibility: true
+
+

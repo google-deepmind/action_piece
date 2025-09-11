@@ -28,10 +28,6 @@ from typing import Any
 from genrec.evaluator import Evaluator
 from genrec.model import AbstractModel
 from genrec.tokenizer import AbstractTokenizer
-# from genrec.utils import config_for_log
-# from genrec.utils import get_file_name
-# from genrec.utils import get_total_steps
-# from genrec.utils import log
 import numpy as np
 import torch
 from torch import optim
@@ -40,6 +36,14 @@ import tqdm
 from transformers import optimization
 import hashlib
 import sys
+
+# WandB 延迟导入
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 
 def get_command_line_args_str():
   """Get command line arguments as a string.
@@ -129,7 +133,6 @@ def log(message, accelerator, logger, level='info'):
   """
   if accelerator.is_main_process:
     try:
-      # 兼容 Python 3.10 和更早版本的日志级别映射
       level_mapping = {
           'DEBUG': logging.DEBUG,
           'INFO': logging.INFO,
@@ -194,6 +197,54 @@ class Trainer:
         self.config['ckpt_dir'], get_file_name(self.config, suffix='.pth')
     )
     os.makedirs(os.path.dirname(self.saved_model_ckpt), exist_ok=True)
+    
+    # 初始化 WandB
+    self.use_wandb = config.get('use_wandb', False) and WANDB_AVAILABLE
+    if self.use_wandb and self.accelerator.is_main_process:
+        self._init_wandb()
+
+  def _init_wandb(self):
+    """初始化 WandB"""
+    try:
+        # 准备运行名称
+        run_name = self.config.get('wandb_name')
+        if not run_name:
+            run_name = get_file_name(self.config, suffix='')
+        
+        # 准备配置
+        wandb_config = config_for_log(self.config.copy())
+        
+        # 准备标签
+        tags = self.config.get('wandb_tags', [])
+        if self.config.get('category'):
+            tags.append(self.config['category'])
+        if self.config.get('dataset'):
+            tags.append(self.config['dataset'])
+        
+        # 准备注释
+        notes = self.config.get('wandb_notes')
+        if not notes:
+            notes = f"ActionPiece training on {self.config.get('category', 'unknown')} dataset"
+        
+        # 初始化 WandB
+        wandb.init(
+            project=self.config.get('wandb_project', 'actionpiece'),
+            entity=self.config.get('wandb_entity'),
+            name=run_name,
+            config=wandb_config,
+            tags=tags,
+            notes=notes,
+            save_code=True,  # 保存代码
+            reinit=True  # 允许重新初始化
+        )
+        
+        # 监控模型
+        wandb.watch(self.model, log='all', log_freq=100)
+        
+        self.log("WandB initialized successfully")
+    except Exception as e:
+        self.log(f"Failed to initialize WandB: {e}", level='warning')
+        self.use_wandb = False
 
   def fit(self, train_dataloader, val_dataloader):
     """Trains the model using the provided training and validation dataloaders.
@@ -236,34 +287,77 @@ class Trainer:
     ).astype(int)
     best_epoch = 0
     best_val_score = -1
+    
+    global_step = 0
 
     for epoch in range(n_epochs):
       # Training
       self.model.train()
       total_loss = 0.0
+      epoch_losses = []
+      
       train_progress_bar = tqdm(
           train_dataloader,
           total=len(train_dataloader),
           desc=f'Training - [Epoch {epoch + 1}]',
       )
-      for batch in train_progress_bar:
+      
+      for step, batch in enumerate(train_progress_bar):
         optimizer.zero_grad()
         outputs = self.model(batch)
         loss = outputs.loss
         self.accelerator.backward(loss)
+        
         if self.config['max_grad_norm'] is not None:
           clip_grad_norm_(self.model.parameters(), self.config['max_grad_norm'])
+        
         optimizer.step()
         scheduler.step()
-        total_loss = total_loss + loss.item()
+        
+        loss_item = loss.item()
+        total_loss += loss_item
+        epoch_losses.append(loss_item)
+        global_step += 1
+        
+        # 获取当前学习率
+        current_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else self.config['lr']
+        
+        # WandB 步级记录
+        if self.use_wandb and self.accelerator.is_main_process:
+            wandb.log({
+                'train/loss_step': loss_item,
+                'train/learning_rate': current_lr,
+                'train/epoch': epoch + 1,
+                'train/global_step': global_step,
+            }, step=global_step)
+        
+        # 更新进度条
+        train_progress_bar.set_postfix({
+            'loss': f'{loss_item:.4f}',
+            'avg_loss': f'{total_loss / (step + 1):.4f}',
+            'lr': f'{current_lr:.2e}'
+        })
 
+      # Epoch 级别统计
+      avg_train_loss = total_loss / len(train_dataloader)
+      train_loss_std = np.std(epoch_losses)
+      
+      # 记录到 accelerator
       self.accelerator.log(
-          {'Loss/train_loss': total_loss / len(train_dataloader)},
+          {'Loss/train_loss': avg_train_loss},
           step=epoch + 1,
       )
+      
+      # WandB epoch 级记录
+      if self.use_wandb and self.accelerator.is_main_process:
+          wandb.log({
+              'train/loss_epoch': avg_train_loss,
+              'train/loss_std': train_loss_std,
+              'epoch': epoch + 1
+          }, step=global_step)
+      
       self.log(
-          f'[Epoch {epoch + 1}] Train Loss:'
-          f' {total_loss / len(train_dataloader)}'
+          f'[Epoch {epoch + 1}] Train Loss: {avg_train_loss:.4f} ± {train_loss_std:.4f}'
       )
 
       # Evaluation
@@ -274,14 +368,31 @@ class Trainer:
             self.accelerator.log(
                 {f'Val_Metric/{key}': all_results[key]}, step=epoch + 1
             )
+          
+          # WandB 验证指标记录
+          if self.use_wandb:
+              wandb_metrics = {}
+              for key, value in all_results.items():
+                  wandb_metrics[f'val/{key}'] = value
+              wandb_metrics['epoch'] = epoch + 1
+              wandb.log(wandb_metrics, step=global_step)
+          
           self.log(f'[Epoch {epoch + 1}] Val Results: {all_results}')
 
         val_score = all_results[self.config['val_metric']]
         if val_score > best_val_score:
           best_val_score = val_score
           best_epoch = epoch + 1
+          
+          # WandB 最佳结果记录
+          if self.use_wandb and self.accelerator.is_main_process:
+              wandb.log({
+                  'best/val_score': best_val_score,
+                  'best/epoch': best_epoch
+              }, step=global_step)
+          
           if self.accelerator.is_main_process:
-            if self.config['use_ddp']:  # unwrap model for saving
+            if self.config['use_ddp']:
               unwrapped_model = self.accelerator.unwrap_model(self.model)
               torch.save(unwrapped_model.state_dict(), self.saved_model_ckpt)
             else:
@@ -296,9 +407,17 @@ class Trainer:
             and epoch + 1 - best_epoch >= self.config['patience']
         ):
           self.log(f'Early stopping at epoch {epoch + 1}')
+          if self.use_wandb and self.accelerator.is_main_process:
+              wandb.log({'training/early_stopped': True}, step=global_step)
           break
 
     self.log(f'Best epoch: {best_epoch}, Best val score: {best_val_score}')
+    
+    # WandB 最终结果记录
+    if self.use_wandb and self.accelerator.is_main_process:
+        wandb.summary['best_epoch'] = best_epoch
+        wandb.summary['best_val_score'] = best_val_score
+        wandb.summary['total_epochs'] = epoch + 1
 
   def evaluate(self, dataloader, split='test'):
     """Evaluates the model on the given dataloader.
@@ -323,7 +442,7 @@ class Trainer:
         batch = {k: v.to(self.accelerator.device) for k, v in batch.items()}
         if self.config[
             'use_ddp'
-        ]:  # ddp, gather data from all devices for evaluation
+        ]:
           preds = self.model.module.generate(
               batch, n_return_sequences=self.evaluator.maxk
           )
@@ -349,6 +468,12 @@ class Trainer:
   def end(self):
     """Ends the training process and releases any used resources."""
     self.accelerator.end_training()
+    # 结束 WandB
+    if self.use_wandb and self.accelerator.is_main_process:
+        try:
+            wandb.finish()
+        except Exception as e:
+            self.log(f"Error finishing WandB: {e}", level='warning')
 
   def log(self, message, level='info'):
     return log(message, self.config['accelerator'], self.logger, level=level)

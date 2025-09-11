@@ -47,3 +47,8 @@ d_kv: 64
 dropout_rate: 0.1
 activation_function: "relu"
 feed_forward_proj: "relu"
+
+
+# Wandb
+use_wandb: true  
+wandb_project: "actionpiece-experiments"
