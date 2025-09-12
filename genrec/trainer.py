@@ -203,7 +203,7 @@ class Trainer:
     if self.use_wandb and self.accelerator.is_main_process:
         self._init_wandb()
 
-def _init_wandb(self):
+  def _init_wandb(self):
     """初始化 WandB"""
     try:
         # 准备运行名称
@@ -273,6 +273,10 @@ def _init_wandb(self):
         train_dataloader: The dataloader for training data.
         val_dataloader: The dataloader for validation data.
     """
+    # WandB 提醒
+    if self.use_wandb and self.accelerator.is_main_process and hasattr(self, 'wandb_url'):
+        print("🎯 Starting training... Track progress at: " + self.wandb_url)
+    
     optimizer = AdamW(
         self.model.parameters(),
         lr=self.config['lr'],
