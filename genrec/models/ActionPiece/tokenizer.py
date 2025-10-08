@@ -29,6 +29,9 @@ from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 import torch
 
+from genrec.models.ActionPiece.gram_vocab_mapper import GRAMVocabMapper
+
+
 
 class ActionPieceTokenizer(AbstractTokenizer):
   """The ActionPiece tokenizer is a tokenizer that encodes the attribute.
@@ -542,33 +545,114 @@ class ActionPieceTokenizer(AbstractTokenizer):
     # +2 for EOS and BOS
     return self.actionpiece.n_categories * self.config['max_item_seq_len'] + 2
 
-  def _init_tokenizer(self, dataset: AbstractDataset):
+  # def _init_tokenizer(self, dataset: AbstractDataset):
+  #   self.item2feat = self._get_item2feat(dataset)
+  #   self._check_conflicts(self.item2feat)
+
+  #   tokenizer_path = os.path.join(
+  #       dataset.cache_dir, 'processed/actionpiece.json'
+  #   )
+  #   if os.path.exists(tokenizer_path):
+  #     # If trained tokenizer exists, load it
+  #     self.logger.info(
+  #         f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
+  #     )
+  #     actionpiece = ActionPieceCore.from_pretrained(
+  #         tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
+  #     )
+  #   else:
+  #     # Initialize ActionPiece from initial features
+  #     self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
+  #     actionpiece = ActionPieceCore(
+  #         state2feat=self.item2feat,
+  #     )
+  #     # Construct ActionPiece vocabulary
+  #     actionpiece.train(
+  #         state_corpus=dataset.split_data['train']['item_seq'],
+  #         target_vocab_size=self.config['actionpiece_vocab_size'],
+  #     )
+  #     actionpiece.save(tokenizer_path)
+  #   return actionpiece
+
+def _init_tokenizer(self, dataset: AbstractDataset):
+    """Initialize ActionPiece tokenizer with optional GRAM vocabulary mapping.
+    
+    This method constructs the ActionPiece vocabulary. If GRAM vocabulary
+    mapping is enabled, it first maps item features to T5 vocabulary tokens
+    before running BPE merging.
+    
+    Args:
+        dataset: Dataset instance containing item metadata.
+        
+    Returns:
+        ActionPieceCore instance with constructed vocabulary.
+    """
+    # Get original item2feat mapping
     self.item2feat = self._get_item2feat(dataset)
     self._check_conflicts(self.item2feat)
-
+    
+    # ============ NEW: GRAM Vocabulary Mapping ============
+    use_gram_vocab = self.config.get('use_gram_vocab_init', False)
+    
+    if use_gram_vocab:
+        self.logger.info('[TOKENIZER] Using GRAM vocabulary initialization...')
+        
+        # Define cache path for GRAM mapping
+        gram_cache_dir = os.path.join(dataset.cache_dir, 'gram_vocab')
+        os.makedirs(gram_cache_dir, exist_ok=True)
+        gram_cache_path = os.path.join(gram_cache_dir, 'gram_t5_mapping.json')
+        
+        # Create GRAM mapper
+        gram_mapper = GRAMVocabMapper(self.config, logger=self.logger)
+        
+        # Map item2feat to T5 vocabulary
+        self.item2feat = gram_mapper.map_item2feat_to_t5_vocab(
+            self.item2feat,
+            dataset,
+            cache_path=gram_cache_path
+        )
+        
+        self.logger.info('[TOKENIZER] GRAM vocabulary mapping completed.')
+        self.logger.info(f'[TOKENIZER] Sample mapped features: {list(self.item2feat.values())[:2]}')
+    # =====================================================
+    
+    # Check if trained tokenizer exists
     tokenizer_path = os.path.join(
         dataset.cache_dir, 'processed/actionpiece.json'
     )
+    
+    # Modify tokenizer path to include GRAM suffix if using GRAM vocab
+    if use_gram_vocab:
+        tokenizer_path = tokenizer_path.replace(
+            'actionpiece.json', 
+            'actionpiece_gram.json'
+        )
+    
     if os.path.exists(tokenizer_path):
-      # If trained tokenizer exists, load it
-      self.logger.info(
-          f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
-      )
-      actionpiece = ActionPieceCore.from_pretrained(
-          tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
-      )
+        # If trained tokenizer exists, load it
+        self.logger.info(
+            f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
+        )
+        actionpiece = ActionPieceCore.from_pretrained(
+            tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
+        )
     else:
-      # Initialize ActionPiece from initial features
-      self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
-      actionpiece = ActionPieceCore(
-          state2feat=self.item2feat,
-      )
-      # Construct ActionPiece vocabulary
-      actionpiece.train(
-          state_corpus=dataset.split_data['train']['item_seq'],
-          target_vocab_size=self.config['actionpiece_vocab_size'],
-      )
-      actionpiece.save(tokenizer_path)
+        # Initialize ActionPiece from features (now potentially T5 tokens)
+        self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
+        
+        actionpiece = ActionPieceCore(
+            state2feat=self.item2feat,
+            use_gram_vocab=use_gram_vocab,  # Pass flag to core
+        )
+        
+        # Construct ActionPiece vocabulary via BPE merging
+        actionpiece.train(
+            state_corpus=dataset.split_data['train']['item_seq'],
+            target_vocab_size=self.config['actionpiece_vocab_size'],
+        )
+        
+        actionpiece.save(tokenizer_path)
+    
     return actionpiece
 
   def encode_labels(self, labels):

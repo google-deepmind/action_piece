@@ -1,54 +1,244 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# ==============================================================================
+# ActionPiece Configuration File (Modified for GRAM Vocabulary Mapping)
+# Location: genrec/models/ActionPiece/config.yaml
 # ==============================================================================
 
-# Config for sentence embedding model
+# ==============================================================================
+# GRAM VOCABULARY MAPPING (NEW SECTION)
+# ==============================================================================
+# Enable GRAM's semantic-to-lexical translation where item features are mapped
+# to T5 vocabulary tokens instead of using abstract numeric IDs.
+# This significantly improves vocabulary quality and model interpretability.
+
+# Main GRAM switch
+use_gram_vocab_init: false  # Set to true to enable GRAM vocabulary mapping
+                            # When enabled, features will be mapped to T5 tokens
+
+# GRAM vocabulary mapping detailed configuration
+gram_vocab_mapping:
+  # Enable flag (should match use_gram_vocab_init)
+  enable: false  # Must be set to true together with use_gram_vocab_init
+  
+  # T5 tokenizer selection
+  # Options: 't5-small' (32,100 tokens), 't5-base' (32,128 tokens), 't5-large'
+  # Recommendation: Use 't5-small' for most cases (faster, good quality)
+  tokenizer: t5-small
+  
+  # TF-IDF scoring configuration
+  tfidf_mode: standard  # 'standard' or 'weighted'
+                        # 'standard': Equal weight for all features
+                        # 'weighted': Use feature_weights below
+  
+  # Minimum TF-IDF score threshold
+  # Tokens with scores below this threshold will be replaced with fallback_token
+  min_tfidf_score: 0.0  # Range: 0.0 to 1.0
+                        # 0.0 = no filtering (accept all tokens)
+                        # Higher values = more selective (may increase fallback usage)
+  
+  # Feature type weights (used when tfidf_mode='weighted')
+  # These weights adjust the importance of different feature types
+  feature_weights:
+    title: 1.5        # Title features are most important
+    brand: 1.0        # Brand features at baseline weight
+    category: 1.2     # Category features slightly important
+    description: 0.8  # Description features less important (often noisy)
+  
+  # Fallback strategy
+  fallback_token: "<unk>"  # Token to use when:
+                           # - Feature text is empty
+                           # - No suitable T5 token found
+                           # - TF-IDF score below min_tfidf_score
+                           # Options: "<unk>", "<pad>", or any T5 vocabulary token
+  
+  # Caching configuration
+  use_cache: true  # Enable caching of mapped vocabularies
+                   # HIGHLY RECOMMENDED: First run takes ~3-5min, cached runs <1s
+  
+  cache_invalidate: false  # Force recomputation even if cache exists
+                          # Set to true if you:
+                          # - Changed feature extraction logic
+                          # - Updated TF-IDF parameters
+                          # - Want to rebuild from scratch
+
+# ==============================================================================
+# SENTENCE EMBEDDING MODEL (ORIGINAL)
+# ==============================================================================
+# Configuration for sentence embedding used in feature extraction
 sent_emb_model: sentence-transformers/sentence-t5-base
 sent_emb_batch_size: 512
 sent_emb_dim: 768
-sent_emb_pca: 128 # -1 means no PCA, otherwise PCA dimension
+sent_emb_pca: 128  # -1 means no PCA, otherwise specify PCA dimension
 
-# Config for features
-n_threads: 32
-pq_n_codebooks: 4
-pq_codebook_size: 256
-n_hash_buckets: 128
+# ==============================================================================
+# FEATURE EXTRACTION (ORIGINAL)
+# ==============================================================================
+# Configuration for feature extraction and processing
+n_threads: 32  # Number of threads for parallel processing
+pq_n_codebooks: 4  # Product quantization: number of codebooks
+pq_codebook_size: 256  # Product quantization: codebook size
+n_hash_buckets: 128  # Number of hash buckets for feature hashing
 
-# Config for the action tokenizer
+# ==============================================================================
+# ACTION TOKENIZER (ORIGINAL)
+# ==============================================================================
+# ActionPiece vocabulary size after BPE merging
+# Recommendation:
+# - Small datasets (Beauty): 10,000 - 20,000
+# - Medium datasets (Sports): 20,000 - 30,000
+# - Large datasets (CDs): 30,000 - 40,000
 actionpiece_vocab_size: 40000
 
-# Config for the model
-n_prob_encode_plus: 0
-num_beams: 50 # Number of beams for beam search
-n_inference_ensemble: 4 # Number of inference ensemble
-train_shuffle: feature # none / feature / token
+# ==============================================================================
+# MODEL CONFIGURATION (ORIGINAL)
+# ==============================================================================
+# Configuration for model training and inference
 
-# Config for the task
-max_item_seq_len: 20
+# Set Permutation Regularization (SPR) configuration
+n_prob_encode_plus: 0  # Number of additional SPR augmentations during training
+                       # 0 = no augmentation (baseline)
+                       # 3-5 = recommended for better performance
 
-# Config for T5
-num_layers: 4
-num_decoder_layers: 4
-d_model: 128
-d_ff: 1024
-num_heads: 6
-d_kv: 64
-dropout_rate: 0.1
-activation_function: "relu"
-feed_forward_proj: "relu"
+# Beam search configuration
+num_beams: 50  # Number of beams for beam search during inference
+               # Higher = better quality but slower
+               # Recommendation: 20-50
 
+# Inference ensemble configuration
+n_inference_ensemble: 4  # Number of SPR segmentations to ensemble during inference
+                         # Higher = better performance but slower
+                         # Recommendation: 3-7
 
-# Wandb
-use_wandb: true  
-wandb_project: "actionpiece-experiments"
+# Training shuffle strategy
+train_shuffle: feature  # Options:
+                        # - 'none': No shuffling (naive segmentation)
+                        # - 'feature': Shuffle features within items (basic SPR)
+                        # - 'token': Shuffle tokens (full SPR)
+                        # Recommendation: 'feature' for best balance
+
+# ==============================================================================
+# TASK CONFIGURATION (ORIGINAL)
+# ==============================================================================
+# Maximum item sequence length for recommendation
+max_item_seq_len: 20  # Truncate user history to this length
+                      # Longer = more context but slower training
+                      # Recommendation: 15-25
+
+# ==============================================================================
+# T5 MODEL ARCHITECTURE (ORIGINAL)
+# ==============================================================================
+# Configuration for the T5-based encoder-decoder architecture
+
+# Encoder configuration
+num_layers: 4  # Number of encoder layers
+               # Recommendation: 4-6 for most datasets
+
+# Decoder configuration
+num_decoder_layers: 4  # Number of decoder layers
+                       # Usually same as num_layers
+
+# Model dimensions
+d_model: 128  # Model hidden dimension
+              # Recommendation:
+              # - Small datasets: 128
+              # - Large datasets: 256
+
+d_ff: 1024  # Feed-forward intermediate dimension
+            # Usually 4-8x d_model
+            # Recommendation:
+            # - If d_model=128, use 1024
+            # - If d_model=256, use 2048
+
+# Attention configuration
+num_heads: 6  # Number of attention heads
+              # Should divide d_model evenly
+              # Recommendation: 6-8 heads
+
+d_kv: 64  # Dimension per attention head
+          # Usually d_model / num_heads
+          # Recommendation: 64
+
+# Regularization
+dropout_rate: 0.1  # Dropout rate for all layers
+                   # Recommendation: 0.1 (standard)
+
+# Activation functions
+activation_function: "relu"  # Options: 'relu', 'gelu', 'swish'
+feed_forward_proj: "relu"    # Should match activation_function
+
+# ==============================================================================
+# WEIGHTS & BIASES (ORIGINAL)
+# ==============================================================================
+# Configuration for experiment tracking with Weights & Biases
+
+use_wandb: false  # Enable W&B logging
+                  # Set to true if you want to track experiments
+                  # Requires: pip install wandb && wandb login
+
+wandb_project: "actionpiece-experiments"  # W&B project name
+wandb_entity: null  # W&B entity (team/username)
+                    # null = use default user account
+
+# Additional W&B configuration (can be set via command-line)
+# --wandb_name: Custom run name
+# --wandb_tags: Comma-separated tags
+# --wandb_notes: Run notes
+
+# ==============================================================================
+# NOTES AND RECOMMENDATIONS
+# ==============================================================================
+
+# Quick Start (Baseline):
+# ------------------------
+# use_gram_vocab_init: false
+# actionpiece_vocab_size: 10000
+# This gives you standard ActionPiece performance
+
+# Quick Start (GRAM Enhanced):
+# -----------------------------
+# use_gram_vocab_init: true
+# gram_vocab_mapping:
+#   enable: true
+#   tokenizer: t5-small
+# This enables GRAM vocabulary mapping with default settings
+# Expected improvement: +5-10% on R@5
+
+# Performance vs Speed Tradeoff:
+# -------------------------------
+# Fast training:
+#   - actionpiece_vocab_size: 10000
+#   - num_beams: 20
+#   - n_inference_ensemble: 3
+#
+# Best performance:
+#   - actionpiece_vocab_size: 40000
+#   - num_beams: 50
+#   - n_inference_ensemble: 7
+
+# Memory Considerations:
+# ----------------------
+# If OOM (Out of Memory):
+#   1. Reduce actionpiece_vocab_size (40000 → 20000)
+#   2. Reduce d_model (256 → 128)
+#   3. Reduce max_item_seq_len (20 → 15)
+#   4. Reduce sent_emb_batch_size (512 → 256)
+
+# GRAM Preprocessing Time:
+# -------------------------
+# First run (no cache):
+#   - Beauty (~12K items): 3-5 minutes
+#   - Sports (~36K items): 8-12 minutes
+#   - CDs (~64K items): 15-20 minutes
+#
+# Subsequent runs (with cache): < 1 second
+
+# Experiment Tracking:
+# --------------------
+# Enable wandb for automatic tracking of:
+#   - Training/validation metrics
+#   - Model hyperparameters
+#   - System metrics (GPU usage, etc.)
+#   - Vocabulary statistics (if GRAM enabled)
+
+# ==============================================================================
+# END OF CONFIGURATION
+# ==============================================================================

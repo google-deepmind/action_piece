@@ -93,17 +93,65 @@ class ActionPieceCore:
         pair in all the sequences.
   """
 
-  def __init__(self, state2feat=None, metadata=None):
+  # def __init__(self, state2feat=None, metadata=None, use_gram_vocab=False):
+  #   self.state2feat = state2feat
+  #   self.metadata = metadata
+  #   self.token2all_feat = {}
+    
+
+    # if self.state2feat is not None:
+    #   self.n_categories, self.token2feat, self.feat2token, self.priority = (
+    #       self._init_from_state2feat(state2feat)
+    #   )
+    #   self.n_init_feats = len(self.token2feat)
+    # elif metadata is not None:
+    #   (
+    #       self.n_categories,
+    #       self.n_init_feats,
+    #       self.token2feat,
+    #       self.feat2token,
+    #       self.priority,
+    #   ) = self._init_from_metadata(metadata)
+    # else:
+    #   raise ValueError(
+    #       'Check that one of state2feat and metadata is None.'
+    #   )
+    # self.eps = 1e-12
+    
+def __init__(self, state2feat=None, metadata=None, use_gram_vocab=False):
+    """Initialize ActionPiece core tokenizer.
+    
+    Args:
+        state2feat: Dictionary mapping state IDs to feature lists.
+            - If use_gram_vocab=False: features are numeric IDs
+            - If use_gram_vocab=True: features are T5 token strings
+        metadata: Pre-constructed vocabulary metadata (from saved file).
+        use_gram_vocab: Whether to use GRAM T5 vocabulary mapping.
+            This flag determines how to interpret state2feat features.
+    """
     self.state2feat = state2feat
     self.metadata = metadata
     self.token2all_feat = {}
+    
+    # NEW: Store GRAM flag
+    self.use_gram_vocab = use_gram_vocab
 
     if self.state2feat is not None:
-      self.n_categories, self.token2feat, self.feat2token, self.priority = (
-          self._init_from_state2feat(state2feat)
-      )
+      # Delegate to appropriate initialization method based on GRAM flag
+      if self.use_gram_vocab:
+          # NEW: Use GRAM-aware initialization for T5 tokens
+          self.n_categories, self.token2feat, self.feat2token, self.priority = (
+              self._init_from_gram_state2feat(state2feat)
+          )
+      else:
+          # Original: Use numeric ID initialization
+          self.n_categories, self.token2feat, self.feat2token, self.priority = (
+              self._init_from_state2feat(state2feat)
+          )
       self.n_init_feats = len(self.token2feat)
+      
     elif metadata is not None:
+      # Load from metadata
       (
           self.n_categories,
           self.n_init_feats,
@@ -111,6 +159,10 @@ class ActionPieceCore:
           self.feat2token,
           self.priority,
       ) = self._init_from_metadata(metadata)
+      
+      # NEW: Load GRAM flag from metadata
+      self.use_gram_vocab = metadata.get('use_gram_vocab', False)
+      
     else:
       raise ValueError(
           'Check that one of state2feat and metadata is None.'
@@ -156,6 +208,64 @@ class ActionPieceCore:
         priority.append(0)
     return feats.shape[1], vocab, rank, priority
 
+  def _init_from_gram_state2feat(self, state2feat: dict):
+    """Initialize vocabulary from GRAM T5 tokens (strings).
+    
+    This method handles state2feat where features are T5 vocabulary tokens
+    (strings) instead of numeric IDs. It's used when GRAM vocabulary mapping
+    is enabled.
+    
+    Args:
+        state2feat: Dictionary mapping item IDs to feature choices.
+            Format: {item_id: [[t5_token_str_1, ...], [t5_token_str_2, ...], ...]}
+            Example: {0: [['cream'], ['nivea'], ['beauty'], ['moist']]}
+    
+    Returns:
+        tuple: (n_categories, token2feat, feat2token, priority)
+            - n_categories: Number of feature categories
+            - token2feat: List where index is token_id, value is token representation
+            - feat2token: Dict mapping token representation to token_id
+            - priority: List of priorities (initially zeros)
+    """
+    # Step 1: Collect all unique (category_idx, t5_token_string) pairs
+    unique_features = set()
+    
+    # Determine number of categories from the first item
+    first_item = next(iter(state2feat.values()))
+    n_categories = len(first_item)
+    
+    # Iterate through all items and their features
+    for item_id, feat_choices_list in state2feat.items():
+        for cat_idx, choices in enumerate(feat_choices_list):
+            # Each choice is now a T5 token string, not a numeric ID
+            for token_str in choices:
+                # Store as tuple: (category_index, T5_token_string)
+                unique_features.add((cat_idx, token_str))
+    
+    # Step 2: Build vocabulary (token2feat) and reverse mapping (feat2token)
+    # token2feat format: list of tuples [(cat_idx, token_str), ...]
+    # feat2token format: dict {(cat_idx, token_str): token_id}
+    
+    vocab = [(-1, -1)]  # First token is padding token (same as original)
+    rank = {(-1, -1): 0}
+    priority = [0]
+    
+    # Sort for deterministic ordering
+    for cat_idx, token_str in sorted(unique_features):
+        token_id = len(vocab)
+        token_repr = (cat_idx, token_str)  # Tuple: (category, T5_token)
+        
+        vocab.append(token_repr)
+        rank[token_repr] = token_id
+        priority.append(0)
+    
+    print(f'[ActionPiece Core] Initialized from GRAM tokens:')
+    print(f'  - Number of categories: {n_categories}')
+    print(f'  - Initial vocabulary size: {len(vocab)}')
+    print(f'  - Sample tokens: {vocab[1:6]}')  # Show first 5 non-padding tokens
+    
+    return n_categories, vocab, rank, priority
+
   def _init_from_metadata(self, metadata: dict[str, Any]):
     """Initialize ActionPiece from the metadata of a trained ActionPiece."""
     n_categories = metadata['n_categories']
@@ -165,8 +275,25 @@ class ActionPieceCore:
     priority = [float(_) for _ in metadata['priority']]
     return n_categories, n_init_feats, token2feat, feat2token, priority
 
+  # def save(self, save_path):
+  #   """Save ActionPiece to a metadata file.
+
+  #   Args:
+  #       save_path (str): The path to the metadata file.
+  #   """
+  #   data = {
+  #       'n_categories': self.n_categories,
+  #       'n_init_feats': self.n_init_feats,
+  #       'token2feat': self.token2feat,
+  #       'priority': self.priority,
+  #   }
+  #   with open(save_path, 'w') as f:
+  #     json.dump(data, f)
+
   def save(self, save_path):
     """Save ActionPiece to a metadata file.
+    
+    Saves vocabulary, priorities, and GRAM configuration flag.
 
     Args:
         save_path (str): The path to the metadata file.
@@ -176,13 +303,54 @@ class ActionPieceCore:
         'n_init_feats': self.n_init_feats,
         'token2feat': self.token2feat,
         'priority': self.priority,
+        'use_gram_vocab': self.use_gram_vocab,  # NEW: Save GRAM flag
     }
-    with open(save_path, 'w') as f:
-      json.dump(data, f)
+    
+    # Use ensure_ascii=False to properly save T5 unicode tokens
+    with open(save_path, 'w', encoding='utf-8') as f:
+      json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    # Log saved configuration
+    print(f'[ActionPiece Core] Saved vocabulary to {save_path}')
+    print(f'  - Vocabulary size: {len(self.token2feat)}')
+    print(f'  - GRAM mode: {self.use_gram_vocab}')
+
+
+  # @classmethod
+  # def from_pretrained(cls, save_path, vocab_size=None):
+  #   """Initialize ActionPiece from a saved file of a pretrained ActionPiece.
+
+  #   Args:
+  #       save_path (str): The path to the metadata file.
+  #       vocab_size (int): The target vocab size. If not None, the vocab will be
+  #         truncated or padded to the target size.
+
+  #   Returns:
+  #       actionpiece (ActionPieceCore):
+  #           The initialized ActionPiece.
+  #   """
+  #   with open(save_path, 'r') as f:
+  #     metadata = json.load(f)
+  #   if vocab_size is not None:
+  #     assert vocab_size >= metadata['n_init_feats'], (
+  #         f'The target vocab size ({vocab_size}) must be larger than the'
+  #         f' initial vocab size ({metadata["n_init_feats"]})'
+  #     )
+  #     assert vocab_size <= len(metadata['token2feat']), (
+  #         f'The target vocab size ({vocab_size}) must be smaller than the'
+  #         f' number of tokens ({len(metadata["token2feat"])})'
+  #     )
+  #     metadata['token2feat'] = metadata['token2feat'][:vocab_size]
+  #     metadata['priority'] = metadata['priority'][:vocab_size]
+  #   actionpiece = cls(metadata=metadata)
+  #   return actionpiece
 
   @classmethod
   def from_pretrained(cls, save_path, vocab_size=None):
     """Initialize ActionPiece from a saved file of a pretrained ActionPiece.
+    
+    Loads vocabulary and automatically detects if it's a GRAM-enhanced version
+    by checking for the 'use_gram_vocab' flag in metadata.
 
     Args:
         save_path (str): The path to the metadata file.
@@ -191,23 +359,28 @@ class ActionPieceCore:
 
     Returns:
         actionpiece (ActionPieceCore):
-            The initialized ActionPiece.
+            The initialized ActionPiece instance.
     """
-    with open(save_path, 'r') as f:
+    # Load metadata with UTF-8 encoding to support T5 tokens
+    with open(save_path, 'r', encoding='utf-8') as f:
       metadata = json.load(f)
-    if vocab_size is not None:
-      assert vocab_size >= metadata['n_init_feats'], (
-          f'The target vocab size ({vocab_size}) must be larger than the'
-          f' initial vocab size ({metadata["n_init_feats"]})'
-      )
-      assert vocab_size <= len(metadata['token2feat']), (
-          f'The target vocab size ({vocab_size}) must be smaller than the'
-          f' number of tokens ({len(metadata["token2feat"])})'
-      )
+    
+    # Truncate vocabulary if requested
+    if vocab_size is not None and len(metadata['token2feat']) > vocab_size:
       metadata['token2feat'] = metadata['token2feat'][:vocab_size]
       metadata['priority'] = metadata['priority'][:vocab_size]
-    actionpiece = cls(metadata=metadata)
-    return actionpiece
+    
+    # Log loaded configuration
+    use_gram = metadata.get('use_gram_vocab', False)
+    print(f'[ActionPiece Core] Loaded vocabulary from {save_path}')
+    print(f'  - Vocabulary size: {len(metadata["token2feat"])}')
+    print(f'  - GRAM mode: {use_gram}')
+    if use_gram:
+        print(f'  - Sample tokens: {metadata["token2feat"][1:4]}')
+    
+    # Create instance from metadata
+    # The __init__ method will extract use_gram_vocab from metadata
+    return cls(metadata=metadata)
 
   def _construct_linked_list(self, head_id, state_seq):
     """Construct the linked list for a single state sequence.
@@ -575,9 +748,9 @@ class ActionPieceCore:
     return token_corpus
 
   def train(
-      self,
-      state_corpus,
-      target_vocab_size: int,
+    self,
+    state_corpus,
+    target_vocab_size: int,
   ):
     """Train the ActionPiece tokenizer.
 
@@ -586,13 +759,23 @@ class ActionPieceCore:
           ActionPiece.
         target_vocab_size (int): The target vocabulary size.
     """
+    # NEW: Add informative logging
+    if self.use_gram_vocab:
+        print('[ActionPiece Core] Training with GRAM T5 tokens as initial vocabulary')
+        print(f'  - Initial tokens are semantic T5 vocabulary strings')
+    else:
+        print('[ActionPiece Core] Training with numeric feature IDs as initial vocabulary')
+    
+    print(f'  - Initial vocabulary size: {len(self.token2feat)}')
+    print(f'  - Target vocabulary size: {target_vocab_size}')
+    print(f'  - Merges to perform: {target_vocab_size - len(self.token2feat)}')
+    
+    # Original code continues...
     token_corpus = self._get_token_corpus(state_corpus)
-    # Build the data structures for the training process
     self._build(token_corpus)
 
     progress_bar = tqdm(range(target_vocab_size - self.n_init_feats))
     while len(self.vocab) < target_vocab_size:
-      # Train for one step, the vocab size will be increased by 1
       self._train_step()
       progress_bar.set_description(
           f'[Vocab size: {len(self.vocab)} / {target_vocab_size}] '
