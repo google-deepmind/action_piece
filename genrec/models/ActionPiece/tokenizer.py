@@ -29,9 +29,6 @@ from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 import torch
 
-from genrec.models.ActionPiece.gram_vocab_mapper import GRAMVocabMapper
-
-
 
 class ActionPieceTokenizer(AbstractTokenizer):
   """The ActionPiece tokenizer is a tokenizer that encodes the attribute.
@@ -114,6 +111,108 @@ class ActionPieceTokenizer(AbstractTokenizer):
     sent_embs.tofile(output_path)
     return sent_embs
 
+  def _load_and_fuse_image_embeddings(self, dataset: AbstractDataset, text_embs: np.ndarray) -> np.ndarray:
+    """Load image embeddings, apply PCA, then fuse with text embeddings."""
+    
+    # 🔧 硬编码配置
+    IMAGE_PATH_TEMPLATE = "/scratch/zl4789/MQL4GRec/data_process/MQL4GRec/{category}/{category}.emb-ViT-L-14.npy"
+    USE_MULTIMODAL = True
+    IMAGE_PCA_DIM = 128
+    FINAL_PCA_DIM = -1
+    
+    if not USE_MULTIMODAL:
+      return text_embs
+    
+    # 1. 构建图像embedding路径
+    image_path = IMAGE_PATH_TEMPLATE.format(category="CDs")
+    
+    if not os.path.exists(image_path):
+      self.logger.warning(
+          f'[TOKENIZER] Image embeddings not found at {image_path}. '
+          'Using text-only mode.'
+      )
+      return text_embs
+    
+    # 2. 加载图像embeddings
+    self.logger.info(f'[TOKENIZER] Loading image embeddings from {image_path}...')
+    image_embs = np.load(image_path)
+    self.logger.info(f'[TOKENIZER] Image embeddings shape: {image_embs.shape}')
+    
+    # 3. 对齐数量
+    min_items = min(text_embs.shape[0], image_embs.shape[0])
+    text_embs = text_embs[:min_items]
+    image_embs = image_embs[:min_items]
+    
+    # 4. 先对图像embedding做PCA降维
+    image_pca_cache_path = os.path.join(
+        dataset.cache_dir,
+        'processed',
+        f'image_pca_{IMAGE_PCA_DIM}.npy'
+    )
+    
+    if os.path.exists(image_pca_cache_path):
+      self.logger.info(
+          f'[TOKENIZER] Loading cached image PCA embeddings from {image_pca_cache_path}...'
+      )
+      image_embs_reduced = np.load(image_pca_cache_path)
+    else:
+      self.logger.info(
+          f'[TOKENIZER] Applying PCA to image embeddings: '
+          f'{image_embs.shape[1]} -> {IMAGE_PCA_DIM} dims...'
+      )
+      image_pca = PCA(n_components=IMAGE_PCA_DIM, whiten=True)
+      image_embs_reduced = image_pca.fit_transform(image_embs)
+      
+      # 保存cache
+      np.save(image_pca_cache_path, image_embs_reduced)
+      self.logger.info(
+          f'[TOKENIZER] Cached image PCA embeddings to {image_pca_cache_path}'
+      )
+    
+    self.logger.info(
+        f'[TOKENIZER] Image embeddings after PCA: {image_embs_reduced.shape}'
+    )
+    
+    # 5. 拼接文本和降维后的图像
+    self.logger.info('[TOKENIZER] Fusing text and image embeddings...')
+    fused_embs = np.concatenate([text_embs, image_embs_reduced], axis=1)
+    self.logger.info(
+        f'[TOKENIZER] Fused embeddings shape: {fused_embs.shape} '
+        f'(text:{text_embs.shape[1]} + image:{image_embs_reduced.shape[1]})'
+    )
+    
+    # 6. 可选：对拼接后的embedding再做一次PCA
+    if FINAL_PCA_DIM > 0:
+      final_pca_cache_path = os.path.join(
+          dataset.cache_dir,
+          'processed',
+          f'multimodal_final_pca_{FINAL_PCA_DIM}.npy'
+      )
+      
+      if os.path.exists(final_pca_cache_path):
+        self.logger.info(
+            f'[TOKENIZER] Loading cached final multimodal embeddings...'
+        )
+        return np.load(final_pca_cache_path)
+      
+      self.logger.info(
+          f'[TOKENIZER] Applying final PCA: {fused_embs.shape[1]} -> {FINAL_PCA_DIM} dims...'
+      )
+      final_pca = PCA(n_components=FINAL_PCA_DIM, whiten=True)
+      final_embs = final_pca.fit_transform(fused_embs)
+      
+      # 保存cache
+      np.save(final_pca_cache_path, final_embs)
+      self.logger.info(f'[TOKENIZER] Final embeddings shape: {final_embs.shape}')
+      
+      return final_embs
+    else:
+      # 不做最终PCA，直接返回拼接结果
+      self.logger.info(
+          f'[TOKENIZER] Final embeddings shape: {fused_embs.shape} (no final PCA)'
+      )
+      return fused_embs
+
   def _get_sent_embs(self, dataset: AbstractDataset) -> np.ndarray:
     # Load or encode sentence embeddings
     sent_emb_path = os.path.join(
@@ -139,6 +238,9 @@ class ActionPieceTokenizer(AbstractTokenizer):
     self.logger.info(
         f'[TOKENIZER] Sentence embeddings shape: {sent_embs.shape}'
     )
+
+    sent_embs = self._load_and_fuse_image_embeddings(dataset, sent_embs)
+
     return sent_embs
 
   def _get_items_for_training(self, dataset: AbstractDataset) -> np.ndarray:
@@ -155,165 +257,9 @@ class ActionPieceTokenizer(AbstractTokenizer):
       mask[dataset.item2id[item] - 1] = True
     return mask
 
-  # def _sent_emb_to_sem_id(
-  #     self, dataset: AbstractDataset, sent_embs: np.ndarray
-  # ) -> dict[Any, Any]:
-  #   # Get the sentence embeddings for training
-  #   training_item_mask = self._get_items_for_training(dataset)
-  #   embs_for_training = sent_embs[training_item_mask]
-
-  #   # Train the index
-  #   # Take the vector quantized codes as item features
-
-  #   faiss.omp_set_num_threads(self.config['n_threads'])
-  #   index = faiss.index_factory(
-  #       sent_embs.shape[-1],
-  #       f"OPQ{self.config['pq_n_codebooks']},IVF1,PQ{self.config['pq_n_codebooks']}x{int(np.log2(self.config['pq_codebook_size']))}",
-  #       faiss.METRIC_INNER_PRODUCT,
-  #   )
-  #   self.logger.info('[TOKENIZER] Training index...')
-  #   index.train(embs_for_training)
-  #   index.add(sent_embs)
-
-  #   ivf_index = faiss.downcast_index(index.index)
-  #   invlists = faiss.extract_index_ivf(ivf_index).invlists
-  #   ls = invlists.list_size(0)
-  #   sem_ids = faiss.rev_swig_ptr(invlists.get_codes(0), ls * invlists.code_size)
-  #   sem_ids = sem_ids.reshape(-1, invlists.code_size)
-
-  #   # Convert semantic IDs to a dictionary
-  #   item2sem_ids = {}
-  #   for i in range(sem_ids.shape[0]):
-  #     item = dataset.id_mapping['id2item'][i + 1]
-  #     item2sem_ids[item] = tuple(sem_ids[i].tolist())
-  #   return item2sem_ids
-
-
-  # def _sent_emb_to_sem_id(
-  #     self, dataset: AbstractDataset, sent_embs: np.ndarray
-  # ) -> dict[Any, Any]:
-  #     # Get the sentence embeddings for training
-  #     training_item_mask = self._get_items_for_training(dataset)
-  #     embs_for_training = sent_embs[training_item_mask]
-
-  #     # Train the index - 修复 faiss segfault 问题
-  #     # Take the vector quantized codes as item features
-
-  #     # 在 macOS 上设置 faiss 的线程数来避免 segfault
-  #     import os
-  #     os.environ['OMP_NUM_THREADS'] = '1'
-      
-  #     try:
-  #         import faiss
-  #         faiss.omp_set_num_threads(self.config['n_threads'])
-          
-  #         # 使用更简单、更稳定的索引类型来避免 segfault
-  #         d = sent_embs.shape[-1]
-          
-  #         # 检查配置是否合理
-  #         n_codebooks = min(self.config['pq_n_codebooks'], d // 8)  # 确保不会超过维度限制
-  #         codebook_bits = min(8, int(np.log2(self.config['pq_codebook_size'])))
-          
-  #         self.log(f'[TOKENIZER] Using {n_codebooks} codebooks with {codebook_bits} bits each')
-          
-  #         # 使用更稳定的索引构建方式
-  #         try:
-  #             # 方法1：尝试使用简单的 PQ（避免 OPQ）
-  #             index = faiss.IndexPQ(d, n_codebooks, codebook_bits)
-  #             self.log('[TOKENIZER] Using simple PQ index')
-  #         except Exception as e:
-  #             self.log(f'[TOKENIZER] PQ failed ({e}), using fallback...')
-  #             # 方法2：最后的回退方案 - 使用随机量化
-  #             return self._fallback_random_quantization(sent_embs, n_codebooks, self.config['pq_codebook_size'])
-          
-  #         self.log('[TOKENIZER] Training index...')
-          
-  #         # 确保训练数据是连续的和正确的类型
-  #         embs_for_training = np.ascontiguousarray(embs_for_training.astype('float32'))
-  #         sent_embs_cont = np.ascontiguousarray(sent_embs.astype('float32'))
-          
-  #         # 训练索引
-  #         index.train(embs_for_training)
-          
-  #         self.log('[TOKENIZER] Computing codes...')
-  #         # 直接计算编码，不添加到索引
-  #         codes = index.pq.compute_codes(sent_embs_cont)
-
-  #     except Exception as e:
-  #         self.log(f'[TOKENIZER] Faiss training failed with error: {e}')
-  #         self.log('[TOKENIZER] Falling back to random quantization...')
-  #         return self._fallback_random_quantization(sent_embs, n_codebooks, self.config['pq_codebook_size'])
-
-  #     # Convert semantic IDs to a dictionary
-  #     item2sem_ids = {}
-  #     for i in range(codes.shape[0]):
-  #         item = dataset.id_mapping['id2item'][i + 1]
-  #         item2sem_ids[item] = tuple(codes[i].tolist())
-  #     return item2sem_ids
-
-  # def _fallback_random_quantization(self, sent_embs: np.ndarray, n_codebooks: int, codebook_size: int) -> dict[Any, Any]:
-  #     """回退方案：使用随机量化代替 faiss"""
-  #     self.log('[TOKENIZER] Using fallback random quantization...')
-      
-  #     # 使用 sklearn 的 KMeans 作为替代
-  #     try:
-  #         from sklearn.cluster import KMeans
-          
-  #         codes = np.zeros((sent_embs.shape[0], n_codebooks), dtype=np.uint8)
-          
-  #         # 对每个子空间进行聚类
-  #         subvec_length = sent_embs.shape[1] // n_codebooks
-          
-  #         for i in range(n_codebooks):
-  #             start_idx = i * subvec_length
-  #             end_idx = (i + 1) * subvec_length if i < n_codebooks - 1 else sent_embs.shape[1]
-              
-  #             subvectors = sent_embs[:, start_idx:end_idx]
-              
-  #             # 使用 KMeans 聚类
-  #             n_clusters = min(codebook_size, subvectors.shape[0])
-  #             kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=1)
-  #             cluster_labels = kmeans.fit_predict(subvectors)
-              
-  #             codes[:, i] = cluster_labels.astype(np.uint8)
-              
-  #             self.log(f'[TOKENIZER] Completed codebook {i+1}/{n_codebooks}')
-          
-  #     except ImportError:
-  #         self.log('[TOKENIZER] sklearn not available, using random codes...')
-  #         # 最简单的回退：随机分配
-  #         codes = np.random.randint(0, codebook_size, size=(sent_embs.shape[0], n_codebooks), dtype=np.uint8)
-      
-  #     # Convert to dictionary format - 需要正确访问 dataset
-  #     item2sem_ids = {}
-  #     for i in range(codes.shape[0]):
-  #         # 这里需要从 dataset 的 id_mapping 中获取正确的 item
-  #         try:
-  #             # 访问数据集的 item 映射
-  #             if hasattr(self, 'dataset') and hasattr(self.dataset, 'id_mapping'):
-  #                 item = self.dataset.id_mapping['id2item'][i + 1]
-  #             else:
-  #                 # 如果无法访问，使用索引作为 key
-  #                 item = f"item_{i}"
-  #             item2sem_ids[item] = tuple(codes[i].tolist())
-  #         except (IndexError, KeyError):
-  #             # 处理索引超出范围的情况
-  #             item = f"item_{i}"
-  #             item2sem_ids[item] = tuple(codes[i].tolist())
-      
-  #     return item2sem_ids
   def _sent_emb_to_sem_id(
-    self, dataset: AbstractDataset, sent_embs: np.ndarray
-) -> dict[Any, Any]:
-    """Convert sentence embeddings to semantic IDs using FAISS.
-    
-    Args:
-        dataset: The dataset containing the items.
-        sent_embs: The sentence embeddings array.
-        
-    Returns:
-        dict: A dictionary mapping item IDs to their semantic IDs.
-    """
+      self, dataset: AbstractDataset, sent_embs: np.ndarray
+  ) -> dict[Any, Any]:
     # Get the sentence embeddings for training
     training_item_mask = self._get_items_for_training(dataset)
     embs_for_training = sent_embs[training_item_mask]
@@ -545,114 +491,33 @@ class ActionPieceTokenizer(AbstractTokenizer):
     # +2 for EOS and BOS
     return self.actionpiece.n_categories * self.config['max_item_seq_len'] + 2
 
-  # def _init_tokenizer(self, dataset: AbstractDataset):
-  #   self.item2feat = self._get_item2feat(dataset)
-  #   self._check_conflicts(self.item2feat)
-
-  #   tokenizer_path = os.path.join(
-  #       dataset.cache_dir, 'processed/actionpiece.json'
-  #   )
-  #   if os.path.exists(tokenizer_path):
-  #     # If trained tokenizer exists, load it
-  #     self.logger.info(
-  #         f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
-  #     )
-  #     actionpiece = ActionPieceCore.from_pretrained(
-  #         tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
-  #     )
-  #   else:
-  #     # Initialize ActionPiece from initial features
-  #     self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
-  #     actionpiece = ActionPieceCore(
-  #         state2feat=self.item2feat,
-  #     )
-  #     # Construct ActionPiece vocabulary
-  #     actionpiece.train(
-  #         state_corpus=dataset.split_data['train']['item_seq'],
-  #         target_vocab_size=self.config['actionpiece_vocab_size'],
-  #     )
-  #     actionpiece.save(tokenizer_path)
-  #   return actionpiece
-
-def _init_tokenizer(self, dataset: AbstractDataset):
-    """Initialize ActionPiece tokenizer with optional GRAM vocabulary mapping.
-    
-    This method constructs the ActionPiece vocabulary. If GRAM vocabulary
-    mapping is enabled, it first maps item features to T5 vocabulary tokens
-    before running BPE merging.
-    
-    Args:
-        dataset: Dataset instance containing item metadata.
-        
-    Returns:
-        ActionPieceCore instance with constructed vocabulary.
-    """
-    # Get original item2feat mapping
+  def _init_tokenizer(self, dataset: AbstractDataset):
     self.item2feat = self._get_item2feat(dataset)
     self._check_conflicts(self.item2feat)
-    
-    # ============ NEW: GRAM Vocabulary Mapping ============
-    use_gram_vocab = self.config.get('use_gram_vocab_init', False)
-    
-    if use_gram_vocab:
-        self.logger.info('[TOKENIZER] Using GRAM vocabulary initialization...')
-        
-        # Define cache path for GRAM mapping
-        gram_cache_dir = os.path.join(dataset.cache_dir, 'gram_vocab')
-        os.makedirs(gram_cache_dir, exist_ok=True)
-        gram_cache_path = os.path.join(gram_cache_dir, 'gram_t5_mapping.json')
-        
-        # Create GRAM mapper
-        gram_mapper = GRAMVocabMapper(self.config, logger=self.logger)
-        
-        # Map item2feat to T5 vocabulary
-        self.item2feat = gram_mapper.map_item2feat_to_t5_vocab(
-            self.item2feat,
-            dataset,
-            cache_path=gram_cache_path
-        )
-        
-        self.logger.info('[TOKENIZER] GRAM vocabulary mapping completed.')
-        self.logger.info(f'[TOKENIZER] Sample mapped features: {list(self.item2feat.values())[:2]}')
-    # =====================================================
-    
-    # Check if trained tokenizer exists
+
     tokenizer_path = os.path.join(
         dataset.cache_dir, 'processed/actionpiece.json'
     )
-    
-    # Modify tokenizer path to include GRAM suffix if using GRAM vocab
-    if use_gram_vocab:
-        tokenizer_path = tokenizer_path.replace(
-            'actionpiece.json', 
-            'actionpiece_gram.json'
-        )
-    
     if os.path.exists(tokenizer_path):
-        # If trained tokenizer exists, load it
-        self.logger.info(
-            f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
-        )
-        actionpiece = ActionPieceCore.from_pretrained(
-            tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
-        )
+      # If trained tokenizer exists, load it
+      self.logger.info(
+          f'[TOKENIZER] Loading ActionPiece from {tokenizer_path}...'
+      )
+      actionpiece = ActionPieceCore.from_pretrained(
+          tokenizer_path, vocab_size=self.config['actionpiece_vocab_size']
+      )
     else:
-        # Initialize ActionPiece from features (now potentially T5 tokens)
-        self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
-        
-        actionpiece = ActionPieceCore(
-            state2feat=self.item2feat,
-            use_gram_vocab=use_gram_vocab,  # Pass flag to core
-        )
-        
-        # Construct ActionPiece vocabulary via BPE merging
-        actionpiece.train(
-            state_corpus=dataset.split_data['train']['item_seq'],
-            target_vocab_size=self.config['actionpiece_vocab_size'],
-        )
-        
-        actionpiece.save(tokenizer_path)
-    
+      # Initialize ActionPiece from initial features
+      self.logger.info('[TOKENIZER] Constructing ActionPiece vocabulary...')
+      actionpiece = ActionPieceCore(
+          state2feat=self.item2feat,
+      )
+      # Construct ActionPiece vocabulary
+      actionpiece.train(
+          state_corpus=dataset.split_data['train']['item_seq'],
+          target_vocab_size=self.config['actionpiece_vocab_size'],
+      )
+      actionpiece.save(tokenizer_path)
     return actionpiece
 
   def encode_labels(self, labels):
