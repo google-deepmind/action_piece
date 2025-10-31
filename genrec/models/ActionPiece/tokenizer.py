@@ -118,7 +118,7 @@ class ActionPieceTokenizer(AbstractTokenizer):
     IMAGE_PATH_TEMPLATE = "/scratch/zl4789/MQL4GRec/data_process/MQL4GRec/{category}/{category}.emb-ViT-L-14.npy"
     USE_MULTIMODAL = True
     IMAGE_PCA_DIM = 128
-    FINAL_PCA_DIM = -1
+    FINAL_PCA_DIM = 128
     
     if not USE_MULTIMODAL:
       return text_embs
@@ -173,6 +173,27 @@ class ActionPieceTokenizer(AbstractTokenizer):
         f'[TOKENIZER] Image embeddings after PCA: {image_embs_reduced.shape}'
     )
     
+
+    num_text = text_embs.shape[0]
+    num_image = image_embs_reduced.shape[0]
+    
+    if num_text != num_image:
+      min_size = min(num_text, num_image)
+      self.logger.warning(
+          f'[TOKENIZER] Item count mismatch: text={num_text}, image={num_image}. '
+          f'Truncating to minimum size: {min_size}'
+      )
+      
+      # 截断到相同大小
+      text_embs = text_embs[:min_size]
+      image_embs_reduced = image_embs_reduced[:min_size]
+      
+      self.logger.info(
+          f'[TOKENIZER] After truncation - '
+          f'text: {text_embs.shape}, image: {image_embs_reduced.shape}'
+      )
+
+
     # 5. 拼接文本和降维后的图像
     self.logger.info('[TOKENIZER] Fusing text and image embeddings...')
     fused_embs = np.concatenate([text_embs, image_embs_reduced], axis=1)
@@ -181,6 +202,10 @@ class ActionPieceTokenizer(AbstractTokenizer):
         f'(text:{text_embs.shape[1]} + image:{image_embs_reduced.shape[1]})'
     )
     
+
+    print("successfully fused image and text embeddings")
+
+
     # 6. 可选：对拼接后的embedding再做一次PCA
     if FINAL_PCA_DIM > 0:
       final_pca_cache_path = os.path.join(
