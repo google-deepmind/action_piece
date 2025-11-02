@@ -55,44 +55,6 @@ np.save('CDs.emb-ViT-L-14.npy', image_data, allow_pickle=True)
 # - 不需要额外的配套文件
 ```
 
-### 格式2：纯数组 + 外部ASIN文件
-
-如果无法修改原始NPY文件，可以创建外部ASIN文件：
-
-#### 选项A：TXT文件（最简单）
-```bash
-# 创建 CDs.emb-ViT-L-14.asins.txt
-# 每行一个ASIN，顺序与NPY文件中的向量一一对应
-B00001
-B00005
-B00007
-...
-```
-
-#### 选项B：JSON文件
-```json
-// CDs.emb-ViT-L-14.asins.json
-[
-  "B00001",
-  "B00005",
-  "B00007",
-  ...
-]
-```
-
-#### 选项C：配置文件
-```json
-// CDs.emb-ViT-L-14.config.json
-{
-  "asins": ["B00001", "B00005", "B00007", ...],
-  "embedding_dim": 768,
-  "model": "ViT-L-14",
-  "created_at": "2024-01-01"
-}
-```
-
----
-
 ## 修改方法
 
 ### 方法1：从现有图像数据生成ASIN映射
@@ -136,65 +98,6 @@ np.save('CDs.emb-ViT-L-14.npy', image_data, allow_pickle=True)
 
 print(f"Saved {len(asins)} image embeddings with ASIN mapping")
 ```
-
-### 方法2：如果已有NPY文件，但有ASIN顺序信息
-
-如果您知道NPY文件中向量的ASIN顺序（例如按ASIN字母序排序），可以重新打包：
-
-```python
-import numpy as np
-import json
-
-# 1. 加载现有的图像embedding
-image_embs = np.load('CDs.emb-ViT-L-14.npy')  # shape: (N, 768)
-
-# 2. 准备ASIN列表（按生成顺序）
-# 例如：如果您的图像是按ASIN排序处理的
-with open('sorted_asins.json', 'r') as f:
-    asins = json.load(f)
-
-# 或者从Amazon数据中提取
-# asins = sorted(list(item_images.keys()))
-
-# 3. 验证数量匹配
-assert len(asins) == image_embs.shape[0], \
-    f"ASIN count ({len(asins)}) != embedding count ({image_embs.shape[0]})"
-
-# 4. 重新打包为字典格式
-image_data = {
-    'asins': asins,
-    'embeddings': image_embs
-}
-
-# 5. 保存
-np.save('CDs.emb-ViT-L-14_with_asins.npy', image_data, allow_pickle=True)
-print(f"✓ Saved {len(asins)} embeddings with ASIN mapping")
-```
-
-### 方法3：创建外部ASIN文件（最快速）
-
-如果无法修改NPY文件，只需创建配套的ASIN文件：
-
-```python
-import numpy as np
-
-# 您的ASIN列表（与NPY文件中向量顺序一致）
-asins = ['B00001', 'B00005', 'B00007', ...]
-
-# 保存为TXT
-with open('CDs.emb-ViT-L-14.asins.txt', 'w') as f:
-    for asin in asins:
-        f.write(f"{asin}\n")
-
-# 或保存为JSON
-import json
-with open('CDs.emb-ViT-L-14.asins.json', 'w') as f:
-    json.dump(asins, f)
-
-print(f"✓ Saved {len(asins)} ASINs to external file")
-```
-
----
 
 ## 验证步骤
 

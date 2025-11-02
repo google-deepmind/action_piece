@@ -111,65 +111,6 @@ class ActionPieceTokenizer(AbstractTokenizer):
     sent_embs.tofile(output_path)
     return sent_embs
 
-  def _load_external_asins(self, image_npy_path: str) -> list:
-    """Load ASIN list from external files.
-
-    Tries multiple methods to find ASIN information:
-    1. From .npy file itself (if it contains ASIN info)
-    2. From a .asins.txt file (one ASIN per line)
-    3. From a .asins.json file (JSON array of ASINs)
-    4. From a .config.json file (with 'asins' key)
-
-    Args:
-        image_npy_path: Path to the .npy image embedding file
-
-    Returns:
-        List of ASINs corresponding to the image embeddings
-
-    Raises:
-        FileNotFoundError: If no ASIN mapping can be found
-    """
-    import json
-
-    # Method 1: Try loading from .txt file
-    txt_path = image_npy_path.replace('.npy', '.asins.txt')
-    if os.path.exists(txt_path):
-      self.logger.info(f'[TOKENIZER] Loading ASINs from {txt_path}')
-      with open(txt_path, 'r') as f:
-        asins = [line.strip() for line in f if line.strip()]
-      self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from txt file')
-      return asins
-
-    # Method 2: Try loading from .json file
-    json_path = image_npy_path.replace('.npy', '.asins.json')
-    if os.path.exists(json_path):
-      self.logger.info(f'[TOKENIZER] Loading ASINs from {json_path}')
-      with open(json_path, 'r') as f:
-        asins = json.load(f)
-      self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from json file')
-      return asins
-
-    # Method 3: Try loading from .config.json
-    config_path = image_npy_path.replace('.npy', '.config.json')
-    if os.path.exists(config_path):
-      self.logger.info(f'[TOKENIZER] Loading ASINs from {config_path}')
-      with open(config_path, 'r') as f:
-        config = json.load(f)
-        if 'asins' in config:
-          asins = config['asins']
-          self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from config file')
-          return asins
-
-    # If no external file found, raise error
-    raise FileNotFoundError(
-        f'Cannot find ASIN mapping for {image_npy_path}. '
-        f'Please provide one of:\n'
-        f'  1) ASIN info embedded in the .npy file\n'
-        f'  2) {txt_path}\n'
-        f'  3) {json_path}\n'
-        f'  4) {config_path} with "asins" key'
-    )
-
   def _load_and_fuse_image_embeddings(self, dataset: AbstractDataset, text_embs: np.ndarray) -> np.ndarray:
     """Load image embeddings with ASIN-based alignment, apply PCA, then fuse with text embeddings.
 
@@ -205,29 +146,44 @@ class ActionPieceTokenizer(AbstractTokenizer):
       )
       return text_embs
 
-    # 2. 加载图像embeddings和ASIN信息
+    # 2. 加载图像embeddings和ASIN信息（字典格式）
     self.logger.info(f'[TOKENIZER] Loading image embeddings from {image_path}...')
 
     try:
+      # 加载字典格式的NPY文件
       image_data = np.load(image_path, allow_pickle=True)
 
-      # Try to extract embeddings and ASINs
-      if isinstance(image_data, np.ndarray) and image_data.dtype == object:
-        # Dictionary format: {'embeddings': array, 'asins': list}
-        image_dict = image_data.item()
-        image_embs_raw = np.array(image_dict['embeddings'])
-        image_asins = list(image_dict['asins'])
-        self.logger.info(
-            f'[TOKENIZER] Loaded from dict format: '
-            f'{len(image_asins)} items, {image_embs_raw.shape[1]}D'
+      # 期望的格式: {'asins': [...], 'embeddings': array}
+      if not (isinstance(image_data, np.ndarray) and image_data.dtype == object):
+        raise ValueError(
+            f'Image data must be in dictionary format. '
+            f'Expected dict with "asins" and "embeddings" keys. '
+            f'Got: {type(image_data)}'
         )
-      else:
-        # Pure array format, need external ASIN file
-        image_embs_raw = image_data
-        image_asins = self._load_external_asins(image_path)
-        self.logger.info(
-            f'[TOKENIZER] Loaded from array + external ASINs: '
-            f'{len(image_asins)} items, {image_embs_raw.shape[1]}D'
+
+      image_dict = image_data.item()
+
+      # 检查必需的键
+      if 'asins' not in image_dict or 'embeddings' not in image_dict:
+        raise ValueError(
+            f'Image data dictionary must contain "asins" and "embeddings" keys. '
+            f'Found keys: {list(image_dict.keys())}'
+        )
+
+      # 提取数据
+      image_asins = list(image_dict['asins'])
+      image_embs_raw = np.array(image_dict['embeddings'])
+
+      self.logger.info(
+          f'[TOKENIZER] ✓ Loaded dictionary format: '
+          f'{len(image_asins)} items, {image_embs_raw.shape[1]}D'
+      )
+
+      # 验证数据一致性
+      if len(image_asins) != image_embs_raw.shape[0]:
+        raise ValueError(
+            f'ASIN count ({len(image_asins)}) does not match '
+            f'embedding count ({image_embs_raw.shape[0]})'
         )
 
     except Exception as e:
