@@ -111,130 +111,269 @@ class ActionPieceTokenizer(AbstractTokenizer):
     sent_embs.tofile(output_path)
     return sent_embs
 
+  def _load_external_asins(self, image_npy_path: str) -> list:
+    """Load ASIN list from external files.
+
+    Tries multiple methods to find ASIN information:
+    1. From .npy file itself (if it contains ASIN info)
+    2. From a .asins.txt file (one ASIN per line)
+    3. From a .asins.json file (JSON array of ASINs)
+    4. From a .config.json file (with 'asins' key)
+
+    Args:
+        image_npy_path: Path to the .npy image embedding file
+
+    Returns:
+        List of ASINs corresponding to the image embeddings
+
+    Raises:
+        FileNotFoundError: If no ASIN mapping can be found
+    """
+    import json
+
+    # Method 1: Try loading from .txt file
+    txt_path = image_npy_path.replace('.npy', '.asins.txt')
+    if os.path.exists(txt_path):
+      self.logger.info(f'[TOKENIZER] Loading ASINs from {txt_path}')
+      with open(txt_path, 'r') as f:
+        asins = [line.strip() for line in f if line.strip()]
+      self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from txt file')
+      return asins
+
+    # Method 2: Try loading from .json file
+    json_path = image_npy_path.replace('.npy', '.asins.json')
+    if os.path.exists(json_path):
+      self.logger.info(f'[TOKENIZER] Loading ASINs from {json_path}')
+      with open(json_path, 'r') as f:
+        asins = json.load(f)
+      self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from json file')
+      return asins
+
+    # Method 3: Try loading from .config.json
+    config_path = image_npy_path.replace('.npy', '.config.json')
+    if os.path.exists(config_path):
+      self.logger.info(f'[TOKENIZER] Loading ASINs from {config_path}')
+      with open(config_path, 'r') as f:
+        config = json.load(f)
+        if 'asins' in config:
+          asins = config['asins']
+          self.logger.info(f'[TOKENIZER] Loaded {len(asins)} ASINs from config file')
+          return asins
+
+    # If no external file found, raise error
+    raise FileNotFoundError(
+        f'Cannot find ASIN mapping for {image_npy_path}. '
+        f'Please provide one of:\n'
+        f'  1) ASIN info embedded in the .npy file\n'
+        f'  2) {txt_path}\n'
+        f'  3) {json_path}\n'
+        f'  4) {config_path} with "asins" key'
+    )
+
   def _load_and_fuse_image_embeddings(self, dataset: AbstractDataset, text_embs: np.ndarray) -> np.ndarray:
-    """Load image embeddings, apply PCA, then fuse with text embeddings."""
-    
+    """Load image embeddings with ASIN-based alignment, apply PCA, then fuse with text embeddings.
+
+    This function implements precise ASIN-based alignment to ensure that each item's
+    text embedding is matched with the correct image embedding.
+
+    Args:
+        dataset: Dataset object containing id_mapping with ASIN information
+        text_embs: Text embeddings, shape (N_items-1, dim)
+                  text_embs[i] corresponds to dataset.id_mapping['id2item'][i+1]
+
+    Returns:
+        Fused multimodal embeddings, shape (N_items-1, final_dim)
+    """
+
     # 🔧 硬编码配置
     IMAGE_PATH_TEMPLATE = "/scratch/zl4789/MQL4GRec/data_process/MQL4GRec/{category}/{category}.emb-ViT-L-14.npy"
     USE_MULTIMODAL = True
     IMAGE_PCA_DIM = 128
     FINAL_PCA_DIM = 128
+    FILL_STRATEGY = 'zero'  # Options: 'zero', 'mean'
     
     if not USE_MULTIMODAL:
       return text_embs
-    
+
     # 1. 构建图像embedding路径
     image_path = IMAGE_PATH_TEMPLATE.format(category="CDs")
-    
+
     if not os.path.exists(image_path):
       self.logger.warning(
           f'[TOKENIZER] Image embeddings not found at {image_path}. '
           'Using text-only mode.'
       )
       return text_embs
-    
-    # 2. 加载图像embeddings
+
+    # 2. 加载图像embeddings和ASIN信息
     self.logger.info(f'[TOKENIZER] Loading image embeddings from {image_path}...')
-    image_embs = np.load(image_path)
-    self.logger.info(f'[TOKENIZER] Image embeddings shape: {image_embs.shape}')
-    
-    # 3. 对齐数量
-    min_items = min(text_embs.shape[0], image_embs.shape[0])
-    text_embs = text_embs[:min_items]
-    image_embs = image_embs[:min_items]
-    
-    # 4. 先对图像embedding做PCA降维
+
+    try:
+      image_data = np.load(image_path, allow_pickle=True)
+
+      # Try to extract embeddings and ASINs
+      if isinstance(image_data, np.ndarray) and image_data.dtype == object:
+        # Dictionary format: {'embeddings': array, 'asins': list}
+        image_dict = image_data.item()
+        image_embs_raw = np.array(image_dict['embeddings'])
+        image_asins = list(image_dict['asins'])
+        self.logger.info(
+            f'[TOKENIZER] Loaded from dict format: '
+            f'{len(image_asins)} items, {image_embs_raw.shape[1]}D'
+        )
+      else:
+        # Pure array format, need external ASIN file
+        image_embs_raw = image_data
+        image_asins = self._load_external_asins(image_path)
+        self.logger.info(
+            f'[TOKENIZER] Loaded from array + external ASINs: '
+            f'{len(image_asins)} items, {image_embs_raw.shape[1]}D'
+        )
+
+    except Exception as e:
+      self.logger.error(f'[TOKENIZER] Failed to load image data: {e}')
+      self.logger.warning('[TOKENIZER] Falling back to text-only mode')
+      return text_embs
+
+    # 3. 构建ASIN到图像embedding的映射
+    asin2image_emb = {}
+    for asin, emb in zip(image_asins, image_embs_raw):
+      # Handle potential bytes encoding
+      if isinstance(asin, bytes):
+        asin = asin.decode('utf-8')
+      asin2image_emb[str(asin)] = emb
+
+    self.logger.info(f'[TOKENIZER] Built ASIN→Image mapping: {len(asin2image_emb)} items')
+
+    # 4. 精确对齐：按文本embedding顺序对齐图像
+    aligned_image_embs = []
+    missing_asins = []
+    stats = {'matched': 0, 'missing': 0}
+
+    for i in range(1, dataset.n_items):  # 从1开始，跳过PAD (index 0)
+      asin = dataset.id_mapping['id2item'][i]
+      asin_str = str(asin)
+
+      if asin_str in asin2image_emb:
+        # 找到匹配的图像embedding
+        aligned_image_embs.append(asin2image_emb[asin_str])
+        stats['matched'] += 1
+      else:
+        # 缺失图像的处理
+        if FILL_STRATEGY == 'zero':
+          fill_emb = np.zeros(image_embs_raw.shape[1])
+        elif FILL_STRATEGY == 'mean':
+          fill_emb = np.mean(image_embs_raw, axis=0)
+        else:
+          fill_emb = np.zeros(image_embs_raw.shape[1])
+
+        aligned_image_embs.append(fill_emb)
+        missing_asins.append(asin_str)
+        stats['missing'] += 1
+
+    aligned_image_embs = np.array(aligned_image_embs)
+
+    self.logger.info(
+        f'[TOKENIZER] ✓ ASIN alignment complete: '
+        f'{stats["matched"]} matched, {stats["missing"]} missing '
+        f'({stats["missing"]*100/(stats["matched"]+stats["missing"]):.1f}% missing)'
+    )
+
+    if stats['missing'] > 0 and stats['missing'] <= 10:
+      self.logger.info(f'[TOKENIZER] Missing ASINs: {missing_asins}')
+    elif stats['missing'] > 10:
+      self.logger.info(f'[TOKENIZER] Missing ASINs (first 10): {missing_asins[:10]}')
+
+    # 5. 验证对齐
+    assert text_embs.shape[0] == aligned_image_embs.shape[0], \
+        f'Alignment failed: text={text_embs.shape}, image={aligned_image_embs.shape}'
+
+    # Now use aligned_image_embs instead of image_embs
+    image_embs = aligned_image_embs
+
+    # 6. 对图像embedding做PCA降维
+    # 缓存文件名包含填充策略以区分不同版本
     image_pca_cache_path = os.path.join(
         dataset.cache_dir,
         'processed',
-        f'image_pca_{IMAGE_PCA_DIM}.npy'
+        f'image_pca_{IMAGE_PCA_DIM}_{FILL_STRATEGY}.npy'
     )
-    
+
     if os.path.exists(image_pca_cache_path):
       self.logger.info(
-          f'[TOKENIZER] Loading cached image PCA embeddings from {image_pca_cache_path}...'
+          f'[TOKENIZER] Loading cached image PCA embeddings...'
       )
       image_embs_reduced = np.load(image_pca_cache_path)
     else:
       self.logger.info(
           f'[TOKENIZER] Applying PCA to image embeddings: '
-          f'{image_embs.shape[1]} -> {IMAGE_PCA_DIM} dims...'
+          f'{image_embs.shape[1]}D → {IMAGE_PCA_DIM}D'
       )
+
+      # 只用非零向量训练PCA (如果使用zero填充策略)
+      if FILL_STRATEGY == 'zero' and stats['missing'] > 0:
+        non_zero_mask = ~np.all(image_embs == 0, axis=1)
+        train_data = image_embs[non_zero_mask]
+        self.logger.info(
+            f'[TOKENIZER] Training PCA on {np.sum(non_zero_mask)} valid images '
+            f'(excluding {stats["missing"]} zero-filled items)'
+        )
+      else:
+        train_data = image_embs
+
       image_pca = PCA(n_components=IMAGE_PCA_DIM, whiten=True)
-      image_embs_reduced = image_pca.fit_transform(image_embs)
-      
+      image_pca.fit(train_data)
+      image_embs_reduced = image_pca.transform(image_embs)
+
       # 保存cache
       np.save(image_pca_cache_path, image_embs_reduced)
-      self.logger.info(
-          f'[TOKENIZER] Cached image PCA embeddings to {image_pca_cache_path}'
-      )
-    
+      self.logger.info(f'[TOKENIZER] Cached to {image_pca_cache_path}')
+
     self.logger.info(
         f'[TOKENIZER] Image embeddings after PCA: {image_embs_reduced.shape}'
     )
-    
 
-    num_text = text_embs.shape[0]
-    num_image = image_embs_reduced.shape[0]
-    
-    if num_text != num_image:
-      min_size = min(num_text, num_image)
-      self.logger.warning(
-          f'[TOKENIZER] Item count mismatch: text={num_text}, image={num_image}. '
-          f'Truncating to minimum size: {min_size}'
-      )
-      
-      # 截断到相同大小
-      text_embs = text_embs[:min_size]
-      image_embs_reduced = image_embs_reduced[:min_size]
-      
-      self.logger.info(
-          f'[TOKENIZER] After truncation - '
-          f'text: {text_embs.shape}, image: {image_embs_reduced.shape}'
-      )
-
-
-    # 5. 拼接文本和降维后的图像
+    # 7. 拼接文本和降维后的图像
     self.logger.info('[TOKENIZER] Fusing text and image embeddings...')
     fused_embs = np.concatenate([text_embs, image_embs_reduced], axis=1)
     self.logger.info(
         f'[TOKENIZER] Fused embeddings shape: {fused_embs.shape} '
-        f'(text:{text_embs.shape[1]} + image:{image_embs_reduced.shape[1]})'
+        f'(text:{text_embs.shape[1]}D + image:{image_embs_reduced.shape[1]}D)'
     )
-    
 
-    print("successfully fused image and text embeddings")
-
-
-    # 6. 可选：对拼接后的embedding再做一次PCA
+    # 8. 对拼接后的embedding再做一次PCA
     if FINAL_PCA_DIM > 0:
+      # 缓存文件名包含填充策略以区分不同版本
       final_pca_cache_path = os.path.join(
           dataset.cache_dir,
           'processed',
-          f'multimodal_final_pca_{FINAL_PCA_DIM}.npy'
+          f'multimodal_final_pca_{FINAL_PCA_DIM}_{FILL_STRATEGY}.npy'
       )
-      
+
       if os.path.exists(final_pca_cache_path):
         self.logger.info(
             f'[TOKENIZER] Loading cached final multimodal embeddings...'
         )
-        return np.load(final_pca_cache_path)
-      
+        final_embs = np.load(final_pca_cache_path)
+      else:
+        self.logger.info(
+            f'[TOKENIZER] Applying final PCA: {fused_embs.shape[1]}D → {FINAL_PCA_DIM}D'
+        )
+        final_pca = PCA(n_components=FINAL_PCA_DIM, whiten=True)
+        final_embs = final_pca.fit_transform(fused_embs)
+
+        # 保存cache
+        np.save(final_pca_cache_path, final_embs)
+        self.logger.info(f'[TOKENIZER] Cached to {final_pca_cache_path}')
+
       self.logger.info(
-          f'[TOKENIZER] Applying final PCA: {fused_embs.shape[1]} -> {FINAL_PCA_DIM} dims...'
+          f'[TOKENIZER] ✓ Multimodal fusion complete: {final_embs.shape}'
       )
-      final_pca = PCA(n_components=FINAL_PCA_DIM, whiten=True)
-      final_embs = final_pca.fit_transform(fused_embs)
-      
-      # 保存cache
-      np.save(final_pca_cache_path, final_embs)
-      self.logger.info(f'[TOKENIZER] Final embeddings shape: {final_embs.shape}')
-      
       return final_embs
     else:
       # 不做最终PCA，直接返回拼接结果
       self.logger.info(
-          f'[TOKENIZER] Final embeddings shape: {fused_embs.shape} (no final PCA)'
+          f'[TOKENIZER] ✓ Multimodal fusion complete: {fused_embs.shape} (no final PCA)'
       )
       return fused_embs
 
