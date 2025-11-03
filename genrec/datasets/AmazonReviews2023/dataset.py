@@ -16,6 +16,7 @@
 """Dataset for Amazon Reviews 2023."""
 
 import collections
+import csv
 import datetime as dt
 import gzip
 import json
@@ -68,8 +69,10 @@ def get_item_seqs(
 def check_available_category(category: str):
   """Checks if the `self.category` is available in the dataset."""
   available_categories = [
+      'All_Amazon',
       'All_Beauty',
       'Appliances',
+      'Apps_and_Games',
       'Arts_Crafts_and_Sewing',
       'Automotive',
       'Baby_Products',
@@ -78,18 +81,26 @@ def check_available_category(category: str):
       'CDs_and_Vinyl',
       'Cell_Phones_and_Accessories',
       'Clothing_Shoes_and_Jewelry',
+      'Computers',
       'Digital_Music',
       'Electronics',
+      'Gift_Cards',
       'Grocery_and_Gourmet_Food',
+      'Handmade_Products',
       'Health_and_Household',
       'Home_and_Kitchen',
       'Industrial_and_Scientific',
+      'Jewelry',
+      'Kindle_Store',
       'Kitchen_and_Dining',
       'Luxury_Beauty',
+      'Magazine_Subscriptions',
+      'Movies_and_TV',
       'Musical_Instruments',
       'Office_Products',
       'Patio_Lawn_and_Garden',
       'Pet_Supplies',
+      'Prime_Pantry',
       'Software',
       'Sports_and_Outdoors',
       'Tools_and_Home_Improvement',
@@ -168,33 +179,68 @@ class AmazonReviews2023(AbstractDataset):
     return None
 
   def _download_raw(self, path: str, file_type: str = 'reviews') -> str:
-    """Downloads review or metadata files from the UCSD Amazon v3 release."""
+    """Downloads review or metadata files from the Amazon Reviews 2023 release."""
     if file_type == 'reviews':
-      file_name = f'{self.category}_5.json.gz'
-      url = f'https://jmcauley.ucsd.edu/data/amazon_v3/categoryFiles/{file_name}'
+      candidates = [
+          (
+              f'{self.category}.csv.gz',
+              f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/benchmark/5core/rating_only/{self.category}.csv.gz',
+          ),
+          (
+              f'{self.category}.jsonl.gz',
+              f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/raw/review_categories/{self.category}.jsonl.gz',
+          ),
+      ]
     elif file_type == 'meta':
-      file_name = f'meta_{self.category}.json.gz'
-      url = f'https://jmcauley.ucsd.edu/data/amazon_v3/metaFiles/{file_name}'
+      candidates = [
+          (
+              f'meta_{self.category}.jsonl.gz',
+              f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/raw/meta_categories/meta_{self.category}.jsonl.gz',
+          ),
+      ]
     else:
       raise ValueError(f'Unsupported file_type "{file_type}" for download.')
 
-    base_name = os.path.basename(url)
-    local_filepath = os.path.join(path, base_name)
-    if not os.path.exists(local_filepath):
+    for file_name, url in candidates:
+      local_filepath = os.path.join(path, file_name)
+      if os.path.exists(local_filepath):
+        return local_filepath
       download_file(url, local_filepath)
-    return local_filepath
+      if os.path.exists(local_filepath):
+        return local_filepath
+
+    raise FileNotFoundError(
+        f'Unable to download "{file_type}" data for category '
+        f'{self.category}. Tried URLs: {[u for _, u in candidates]}'
+    )
 
   def _load_reviews(self, path: str) -> list[tuple[str, str, int]]:
     """Load reviews from the raw gzipped JSON file."""
     self.log('[DATASET] Loading reviews...')
     reviews = []
-    for record in parse_gz(path):
-      user = record.get('reviewerID') or record.get('reviewer_id')
-      item = record.get('asin')
-      if not user or not item:
-        continue
-      timestamp = self._parse_timestamp(record)
-      reviews.append((str(user), str(item), int(timestamp)))
+    if path.endswith('.csv.gz'):
+      with gzip.open(path, 'rt', encoding='utf-8', errors='ignore') as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+          user = (
+              row.get('reviewerID')
+              or row.get('reviewer_id')
+              or row.get('customer_id')
+              or row.get('user_id')
+          )
+          item = row.get('asin') or row.get('product_id') or row.get('item_id')
+          if not user or not item:
+            continue
+          timestamp = self._parse_timestamp(row)
+          reviews.append((str(user), str(item), int(timestamp)))
+    else:
+      for record in parse_gz(path):
+        user = record.get('reviewerID') or record.get('reviewer_id')
+        item = record.get('asin')
+        if not user or not item:
+          continue
+        timestamp = self._parse_timestamp(record)
+        reviews.append((str(user), str(item), int(timestamp)))
     return reviews
 
   def _remap_ids(
