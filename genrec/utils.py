@@ -35,7 +35,11 @@ from genrec.model import AbstractModel
 import numpy as np
 import requests
 import torch
+import urllib3
 import yaml
+
+# Disable SSL warnings for academic dataset downloads
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def init_seed(seed, reproducibility):
@@ -253,6 +257,9 @@ def get_dataset(dataset_name: Union[str, Any]) -> Any:
       if dataset_name == 'AmazonReviews2014':
         from genrec.datasets.AmazonReviews2014.dataset import AmazonReviews2014
         return AmazonReviews2014
+      if dataset_name == 'AmazonReviews2023':
+        from genrec.datasets.AmazonReviews2023.dataset import AmazonReviews2023
+        return AmazonReviews2023
       else:
         # 可以在这里添加其他数据集的映射
         raise ValueError(f'Dataset "{dataset_name}" not found.')
@@ -503,7 +510,7 @@ def download_file(url: str, path: str) -> None:
       path (str): The path where the downloaded file will be saved.
   """
   logger = logging.getLogger()
-  response = requests.get(url)
+  response = requests.get(url, verify=False)
   if response.status_code == 200:
     with open(path, 'wb') as f:
       f.write(response.content)
