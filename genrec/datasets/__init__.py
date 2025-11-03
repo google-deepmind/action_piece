@@ -16,7 +16,7 @@
 """Dataset classes for GenRec."""
 
 from genrec.datasets.AmazonReviews2014.dataset import AmazonReviews2014
-from genrec.datasets.AmazonReviews2023.dataset import AmazonReviews2023
+from genrec.datasets.AmazonReviews2018.dataset import AmazonReviews2018
 
 # 为了让 utils.get_dataset 能够找到，我们需要将类暴露在模块级别
-__all__ = ['AmazonReviews2014', 'AmazonReviews2023']
+__all__ = ['AmazonReviews2018', 'AmazonReviews2018']

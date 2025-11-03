@@ -14,7 +14,7 @@ conda activate TIGER
 cd /scratch/zl4789/action_piece_google
 CUDA_VISIBLE_DEVICES=0 python main.py \
     --category=CDs_and_Vinyl \
-    --rand_seed=${seed} \
+    --rand_seed=42 \
     --weight_decay=0.07 \
     --lr=0.001 \
     --d_model=256 \

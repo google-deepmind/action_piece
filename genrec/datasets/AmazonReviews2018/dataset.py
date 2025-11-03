@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Dataset for Amazon Reviews 2014."""
+"""Dataset for Amazon Reviews 2018."""
 
 import collections
 import gzip
@@ -129,8 +129,8 @@ def get_item_seqs(
   return item_seqs
 
 
-class AmazonReviews2014(AbstractDataset):
-  """A class representing the Amazon Reviews 2014 dataset.
+class AmazonReviews2018(AbstractDataset):
+  """A class representing the Amazon Reviews 2018 dataset.
 
   Attributes:
       config (dict): A dictionary containing the configuration parameters for
@@ -144,7 +144,7 @@ class AmazonReviews2014(AbstractDataset):
   """
 
   def __init__(self, config: dict[str, Any]):
-    """Initializes the Amazon Reviews 2014 dataset.
+    """Initializes the Amazon Reviews 2018 dataset.
 
     Args:
       config (dict): A dictionary containing the configuration parameters for
@@ -154,10 +154,10 @@ class AmazonReviews2014(AbstractDataset):
 
     self.category = config['category']
     check_available_category(self.category)
-    self.log(f'[DATASET] Amazon Reviews 2014 for category: {self.category}')
+    self.log(f'[DATASET] Amazon Reviews 2018 for category: {self.category}')
 
     self.cache_dir = os.path.join(
-        config['cache_dir'], 'AmazonReviews2014', self.category
+        config['cache_dir'], 'AmazonReviews2018', self.category
     )
     self._download_and_process_raw()
 
@@ -172,10 +172,17 @@ class AmazonReviews2014(AbstractDataset):
     Returns:
         str: The local file path where the downloaded file is saved.
     """
-    url = (
-        f'https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/{file_type}_{self.category}{"_5" if file_type == "reviews" else ""}.json.gz'
-    )
-
+    # url = (
+    #     f'https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/{file_type}_{self.category}{"_5" if file_type == "reviews" else ""}.json.gz'
+    # )
+    if file_type == 'reviews':
+      url = (
+        f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_v2/categoryFilesSmall/{self.category}_5.json.gz'
+      )
+    else:
+      url = (
+        f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_v2/metaFiles2/meta_{self.category}.json.gz'
+      )
 
     base_name = os.path.basename(url)
     local_filepath = os.path.join(path, base_name)

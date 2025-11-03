@@ -257,9 +257,10 @@ def get_dataset(dataset_name: Union[str, Any]) -> Any:
       if dataset_name == 'AmazonReviews2014':
         from genrec.datasets.AmazonReviews2014.dataset import AmazonReviews2014
         return AmazonReviews2014
-      if dataset_name == 'AmazonReviews2023':
-        from genrec.datasets.AmazonReviews2023.dataset import AmazonReviews2023
-        return AmazonReviews2023
+      if dataset_name == 'AmazonReviews2018':
+        from genrec.datasets.AmazonReviews2018.dataset import AmazonReviews2018
+        return AmazonReviews2018
+
       else:
         # 可以在这里添加其他数据集的映射
         raise ValueError(f'Dataset "{dataset_name}" not found.')

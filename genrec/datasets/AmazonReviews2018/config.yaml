@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Amazon Reviews 2023 dataset package."""
-
-from genrec.datasets.AmazonReviews2023.dataset import AmazonReviews2023
-
-__all__ = ['AmazonReviews2023']
+category: Sports_and_Outdoors
+metadata: sentence # none / raw / sentence
+split: leave_one_out # leave_one_out
