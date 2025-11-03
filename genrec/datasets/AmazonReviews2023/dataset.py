@@ -15,8 +15,6 @@
 
 """Dataset for Amazon Reviews 2023."""
 
-from __future__ import annotations
-
 import collections
 import datetime as dt
 import gzip
@@ -67,10 +65,9 @@ def get_item_seqs(
   return item_seqs
 
 
-class AmazonReviews2023(AbstractDataset):
-  """Dataset loader for the Amazon Reviews 2023 (amazon_v3) release."""
-
-  _AVAILABLE_CATEGORIES = [
+def check_available_category(category: str):
+  """Checks if the `self.category` is available in the dataset."""
+  available_categories = [
       'All_Beauty',
       'Appliances',
       'Arts_Crafts_and_Sewing',
@@ -99,42 +96,26 @@ class AmazonReviews2023(AbstractDataset):
       'Toys_and_Games',
       'Video_Games',
   ]
+  assert category in available_categories, (
+      f'Category "{category}" not available. '
+      f'Available categories: {available_categories}'
+  )
 
-  _VALID_VARIANTS = {'full', 'small'}
+
+class AmazonReviews2023(AbstractDataset):
+  """A class representing the Amazon Reviews 2023 dataset."""
 
   def __init__(self, config: dict[str, Any]):
     super().__init__(config)
 
     self.category = config['category']
-    self._check_available_category(self.category)
-
-    self.dataset_variant = config.get('dataset_variant', 'full')
-    if self.dataset_variant not in self._VALID_VARIANTS:
-      raise ValueError(
-          f'Invalid dataset_variant "{self.dataset_variant}". '
-          f'Valid options: {sorted(self._VALID_VARIANTS)}'
-      )
-
-    self.log(
-        '[DATASET] Amazon Reviews 2023 for category: %s (variant=%s)',
-        self.category,
-        self.dataset_variant,
-    )
+    check_available_category(self.category)
+    self.log(f'[DATASET] Amazon Reviews 2023 for category: {self.category}')
 
     self.cache_dir = os.path.join(
-        config['cache_dir'],
-        'AmazonReviews2023',
-        self.category,
-        self.dataset_variant,
+        config['cache_dir'], 'AmazonReviews2023', self.category
     )
     self._download_and_process_raw()
-
-  def _check_available_category(self, category: str) -> None:
-    if category not in self._AVAILABLE_CATEGORIES:
-      raise AssertionError(
-          f'Category "{category}" not available for AmazonReviews2023. '
-          f'Available categories: {self._AVAILABLE_CATEGORIES}'
-      )
 
   def _parse_timestamp(self, record: dict[str, Any]) -> int:
     """Resolve the timestamp for a review record."""
@@ -188,12 +169,9 @@ class AmazonReviews2023(AbstractDataset):
 
   def _download_raw(self, path: str, file_type: str = 'reviews') -> str:
     """Downloads review or metadata files from the UCSD Amazon v3 release."""
-    variant_folder = (
-        'categoryFilesSmall' if self.dataset_variant == 'small' else 'categoryFiles'
-    )
     if file_type == 'reviews':
       file_name = f'{self.category}_5.json.gz'
-      url = f'https://jmcauley.ucsd.edu/data/amazon_v3/{variant_folder}/{file_name}'
+      url = f'https://jmcauley.ucsd.edu/data/amazon_v3/categoryFiles/{file_name}'
     elif file_type == 'meta':
       file_name = f'meta_{self.category}.json.gz'
       url = f'https://jmcauley.ucsd.edu/data/amazon_v3/metaFiles/{file_name}'
