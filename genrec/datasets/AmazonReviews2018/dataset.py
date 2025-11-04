@@ -172,9 +172,7 @@ class AmazonReviews2018(AbstractDataset):
     Returns:
         str: The local file path where the downloaded file is saved.
     """
-    # url = (
-    #     f'https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/{file_type}_{self.category}{"_5" if file_type == "reviews" else ""}.json.gz'
-    # )
+
     if file_type == 'reviews':
       url = (
         f'https://mcauleylab.ucsd.edu/public_datasets/data/amazon_v2/categoryFilesSmall/{self.category}_5.json.gz'
