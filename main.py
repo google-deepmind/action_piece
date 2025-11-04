@@ -22,7 +22,7 @@ import sys
 from genrec.pipeline import Pipeline
 from genrec.utils import parse_command_line_args
 
-# 添加 wandb 导入，使用延迟导入避免依赖问题
+
 try:
     import wandb
     WANDB_AVAILABLE = True
