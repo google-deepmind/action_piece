@@ -73,34 +73,31 @@ def check_available_category(category: str):
 def parse_gz(path: str):
   """Parse a gzipped file and yield each line as a dict.
 
+  Amazon Reviews 2018 uses standard JSON format (double quotes) for both
+  reviews and metadata files, unlike the 2014 version which used Python
+  dict format (single quotes) for metadata.
+
   Args:
       path (str): The path to the gzipped file.
 
   Yields:
       object: Each line of the gzipped file, parsed as a dict.
   """
-  import ast
-  
   with gzip.open(path, 'rt', encoding='utf-8', errors='ignore') as g:
     for line_num, line in enumerate(g, 1):
       line = line.strip()
       if not line:
         continue
-        
+
       try:
-        # 首先尝试使用 json.loads（适用于评论数据）
+        # Amazon Reviews 2018 uses standard JSON format
         yield json.loads(line)
-      except json.JSONDecodeError:
-        try:
-          # 如果 JSON 解析失败，尝试使用 ast.literal_eval（适用于元数据）
-          # 这可以安全地解析 Python 字典格式的字符串
-          yield ast.literal_eval(line)
-        except (ValueError, SyntaxError) as e:
-          # 如果两种方法都失败，记录错误并跳过这一行
-          if line_num <= 10:  # 只显示前10个错误
-            print(f"Warning: Failed to parse line {line_num} in {path}: {e}")
-            print(f"Line content: {line[:100]}..." if len(line) > 100 else f"Line content: {line}")
-          continue
+      except json.JSONDecodeError as e:
+        # Log parsing errors for debugging
+        if line_num <= 10:  # Only show first 10 errors
+          print(f"Warning: Failed to parse line {line_num} in {path}: {e}")
+          print(f"Line content: {line[:100]}..." if len(line) > 100 else f"Line content: {line}")
+        continue
 
 
 def get_item_seqs(
@@ -309,32 +306,62 @@ class AmazonReviews2018(AbstractDataset):
   def _sent_process(self, raw: str) -> str:
     """Process the raw input according to the raw data type and return a processed sentence.
 
+    Amazon Reviews 2018 data type handling:
+    - price: string (may be empty or contain symbols like "$12.99")
+    - description: list of strings (often empty list [])
+    - category: flat list of strings (e.g., ["CDs & Vinyl", "Pop"])
+    - brand, title: strings
+    - feature: list of strings
+
     Args:
-        raw (str): The raw input to be processed.
+        raw: The raw input to be processed (can be str, float, list, etc.).
 
     Returns:
         str: The processed sentence.
     """
     sentence = ''
-    if isinstance(raw, float):
+
+    # Handle None or empty values
+    if raw is None or (isinstance(raw, (list, str)) and not raw):
+      return ''
+
+    # Handle numeric values (rare in 2018, but kept for compatibility)
+    if isinstance(raw, (int, float)):
       sentence += str(raw)
-      sentence += '.'
-    elif raw and isinstance(raw[0], list):
+      sentence += '. '
+
+    # Handle nested lists (e.g., categories in 2014 format - kept for compatibility)
+    elif isinstance(raw, list) and raw and isinstance(raw[0], list):
       for v1 in raw:
         for v in v1:
-          sentence += clean_text(v)[:-1]
+          sentence += clean_text(str(v))[:-1]
           sentence += ', '
       sentence = sentence[:-2]
-      sentence += '.'
+      sentence += '. '
+
+    # Handle flat lists (e.g., category, feature, description in 2018)
     elif isinstance(raw, list):
       for v1 in raw:
-        sentence += clean_text(v1)
+        sentence += clean_text(str(v1))
+
+    # Handle strings (e.g., title, brand, price in 2018)
     else:
-      sentence = clean_text(raw)
-    return sentence + ' '
+      sentence = clean_text(str(raw))
+
+    return sentence
 
   def _extract_meta_sentences(self, metadata: dict[str, Any]) -> dict[str, str]:
     """Extracts meta sentences from the given metadata dictionary.
+
+    Amazon Reviews 2018 metadata fields:
+    - title: product title (string)
+    - price: price string (may be empty or contain "$12.99")
+    - brand: brand name (string, often empty)
+    - feature: product features (list of strings)
+    - category: product categories (flat list of strings, replaces 'categories' from 2014)
+    - description: product description (list of strings, often empty)
+    - details: additional details dictionary (optional, contains SKU, dimensions, etc.)
+    - rank: sales rank information (optional, string or list)
 
     Args:
         metadata (dict): A dictionary containing metadata information for each
@@ -348,17 +375,27 @@ class AmazonReviews2018(AbstractDataset):
     for item, meta in tqdm.tqdm(metadata.items()):
       meta_sentence = ''
       keys = set(meta.keys())
+
+      # Core features for Amazon Reviews 2018
+      # Note: 'category' replaces 'categories' from 2014 version
       features_needed = [
           'title',
-          'price',
           'brand',
+          'price',
           'feature',
-          'categories',
+          'category',  # Changed from 'categories' in 2014
           'description',
       ]
+
+      # Optional 2018-specific fields (uncomment to include)
+      # features_needed.extend(['details', 'rank'])
+
       for feature in features_needed:
         if feature in keys:
-          meta_sentence += self._sent_process(meta[feature])
+          processed = self._sent_process(meta[feature])
+          if processed:  # Only add non-empty processed text
+            meta_sentence += processed
+
       item2meta[item] = meta_sentence
     return item2meta
 
