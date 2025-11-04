@@ -16,10 +16,11 @@ conda activate TIGER
 cd /scratch/zl4789/action_piece_google
 
 CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=Beauty \
+    --category=All_Beauty \
     --weight_decay=0.15 \
     --lr=0.001 \
     --n_hash_buckets=64 \
-    --use_wandb 
+    --use_wandb \
+    --dataset=AmazonReviews2018
 
 conda deactivate

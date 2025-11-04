@@ -51,7 +51,7 @@ def check_available_category(category: str):
       'Toys_and_Games',
       'Video_Games',
       'Tools_and_Home_Improvement',
-      'Beauty',
+      'All_Beauty',
       'Apps_for_Android',
       'Office_Products',
       'Pet_Supplies',
