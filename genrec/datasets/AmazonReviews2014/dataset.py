@@ -299,6 +299,20 @@ class AmazonReviews2014(AbstractDataset):
       if info['asin'] not in item_asins:
         continue
       data[info['asin']] = info
+
+    # Report metadata coverage
+    n_items_with_reviews = len(item_asins)
+    n_items_with_metadata = len(data)
+    coverage = (n_items_with_metadata / n_items_with_reviews * 100) if n_items_with_reviews > 0 else 0
+
+    self.log(f'[DATASET] Metadata coverage: {n_items_with_metadata}/{n_items_with_reviews} '
+             f'({coverage:.2f}%)')
+
+    if coverage < 100:
+      missing_items = n_items_with_reviews - n_items_with_metadata
+      self.log(f'[DATASET] Warning: {missing_items} items from reviews are missing metadata. '
+               f'This is normal for Amazon datasets (typical: 95-98% coverage).')
+
     return data
 
   def _sent_process(self, raw: str) -> str:

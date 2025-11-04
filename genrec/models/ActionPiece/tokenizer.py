@@ -91,8 +91,25 @@ class ActionPieceTokenizer(AbstractTokenizer):
       item2meta = dataset.item2meta['sentence']
     else:
       item2meta = dataset.item2meta
+
+    # Handle missing metadata (common in Amazon datasets, ~2-5% coverage gap)
+    missing_count = 0
     for i in range(1, dataset.n_items):
-      meta_sentences.append(item2meta[dataset.id_mapping['id2item'][i]])
+      item_asin = dataset.id_mapping['id2item'][i]
+      # Use .get() with default empty string for items without metadata
+      meta_text = item2meta.get(item_asin, '')
+      if not meta_text:
+        missing_count += 1
+        # Provide a minimal placeholder to avoid encoding errors
+        meta_text = f"Product {item_asin}"
+      meta_sentences.append(meta_text)
+
+    if missing_count > 0:
+      self.logger.warning(
+          f'[TOKENIZER] {missing_count}/{dataset.n_items-1} items '
+          f'({missing_count/(dataset.n_items-1)*100:.2f}%) have missing metadata. '
+          f'Using placeholders.'
+      )
     sent_embs = sent_emb_model.encode(
         meta_sentences,
         convert_to_numpy=True,

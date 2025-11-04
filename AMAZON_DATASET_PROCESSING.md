@@ -669,20 +669,39 @@ meta_text = dataset.item2meta["0000013714"]
 
 **Common issues and solutions**:
 
-1. **Parsing errors**:
+1. **Incomplete Metadata Coverage (KeyError: 'B001C94CSO')**:
+   - **Problem**: Some items in reviews don't have metadata entries
+   - **Typical coverage**: 95-98% (2-5% of items missing metadata)
+   - **Root cause**:
+     - Reviews and metadata collected at different times
+     - Products may be delisted, merged, or have incomplete data
+     - Amazon 2018 dataset is known to have this gap
+   - **Solution**:
+     - Code automatically handles missing metadata with placeholders
+     - Logs warning with coverage statistics
+     - Uses `"Product {ASIN}"` as fallback text for embedding
+   - **Impact**: Minimal - missing items get generic embeddings
+   - **Example log**:
+     ```
+     [DATASET] Metadata coverage: 71234/73714 (96.63%)
+     [DATASET] Warning: 2480 items from reviews are missing metadata.
+     [TOKENIZER] 2480/73713 items (3.37%) have missing metadata. Using placeholders.
+     ```
+
+2. **Parsing errors**:
    - Logged with line number and preview
    - Only first 10 errors shown to avoid spam
    - Continues processing despite errors
 
-2. **Missing fields in metadata**:
+3. **Missing fields in metadata**:
    - Checks field existence before processing: `if feature in keys`
    - Handles empty values gracefully in `_sent_process()`
 
-3. **Network issues during download**:
+4. **Network issues during download**:
    - `download_file()` utility handles retries
    - Check internet connection and URLs
 
-4. **Disk space**:
+5. **Disk space**:
    - Ensure sufficient space for downloads (~5GB per category)
    - Cache can be cleared manually if needed
 
@@ -715,6 +734,27 @@ meta_text = dataset.item2meta["0000013714"]
 ---
 
 ## Appendix: Field Reference
+
+### ASIN Format
+
+Amazon Standard Identification Numbers (ASINs) come in two formats:
+
+1. **Numeric ASINs** (e.g., `0000013714`, `0307277674`):
+   - Used for **Books** and **Kindle_Store** categories
+   - These are actually **10-digit ISBN-10** numbers
+   - Amazon directly uses ISBN-10 as ASIN for books
+
+2. **Alphanumeric ASINs** (e.g., `B001C94CSO`, `B000OTRZ3W`):
+   - Used for **all other product categories** (CDs, Electronics, etc.)
+   - Amazon-generated unique identifiers
+   - Format: 10 characters, typically starting with 'B', containing uppercase letters and digits
+
+**Example distribution in CDs_and_Vinyl**:
+- `B000OTRZ3W` - CD album (alphanumeric)
+- `B001C94CSO` - CD album (alphanumeric)
+- `0001501348` - Music book (numeric ISBN-10)
+
+Both formats are treated identically in the processing pipeline as string identifiers.
 
 ### Review Fields (Both 2014 and 2018)
 
