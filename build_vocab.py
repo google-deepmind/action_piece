@@ -63,12 +63,44 @@ def build_vocabulary(model_name: str, dataset_name: str, config_dict: dict):
   Returns:
       Path to the saved vocabulary file
   """
+  import accelerate as accelerate_lib
+  import os
+
   # Get configuration
   config = utils.get_config(
       model_name=model_name,
       dataset_name=dataset_name,
       config_file=None,
       config_dict=config_dict,
+  )
+
+  # Automatically set devices and ddp
+  config['device'], config['use_ddp'] = utils.init_device()
+
+  # Initialize accelerator (required for logger)
+  # Helper function to convert values to strings
+  def to_string(value):
+    if isinstance(value, list):
+      if len(value) > 0:
+        return str(value[0])
+      else:
+        return 'unknown'
+    elif value is None:
+      return 'unknown'
+    else:
+      return str(value)
+
+  tensorboard_log_dir = to_string(config.get('tensorboard_log_dir', 'tensorboard'))
+  dataset_name_str = to_string(config.get('dataset', 'unknown'))
+  model_name_str = to_string(config.get('model', 'unknown'))
+
+  project_dir = os.path.join(
+      tensorboard_log_dir,
+      dataset_name_str,
+      model_name_str,
+  )
+  config['accelerator'] = accelerate_lib.Accelerator(
+      log_with='tensorboard', project_dir=project_dir
   )
 
   # Initialize seed and logger
@@ -109,6 +141,9 @@ def build_vocabulary(model_name: str, dataset_name: str, config_dict: dict):
   logger.info(f'Number of categories: {tokenizer.actionpiece.n_categories}')
   logger.info(f'Number of initial features: {tokenizer.actionpiece.n_init_feats}')
   logger.info('=' * 60)
+
+  # End accelerator
+  config['accelerator'].end_training()
 
   return vocab_path
 
