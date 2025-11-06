@@ -47,3 +47,42 @@ d_kv: 64
 dropout_rate: 0.1
 activation_function: "relu"
 feed_forward_proj: "relu"
+
+# Config for multimodal features
+multimodal:
+  enable: true  # Set to false to use text-only mode
+  image_path_template: "/scratch/zl4789/MQL4GRec/data_process/MQL4GRec/{category}/{category}.emb-ViT-L-14.npy"
+  image_pca_dim: 128  # Dimension after PCA for image embeddings
+  final_pca_dim: 128  # Final dimension after fusing text and image (0 to disable)
+  fill_strategy: "zero"  # Strategy for missing images: "zero" or "mean"
+  # Map full category names to short names for image file paths
+  category_mapping:
+    All_Beauty: "Beauty"
+    AMAZON_FASHION: "Fashion"
+    Appliances: "Appliances"
+    Arts_Crafts_and_Sewing: "Arts"
+    Automotive: "Automotive"
+    Books: "Books"
+    CDs_and_Vinyl: "CDs"
+    Cell_Phones_and_Accessories: "Cell"
+    Clothing_Shoes_and_Jewelry: "Clothing"
+    Digital_Music: "Music"
+    Electronics: "Electronics"
+    Gift_Cards: "Gift"
+    Grocery_and_Gourmet_Food: "Food"
+    Home_and_Kitchen: "Home"
+    Industrial_and_Scientific: "Scientific"
+    Kindle_Store: "Kindle"
+    Luxury_Beauty: "Luxury"
+    Magazine_Subscriptions: "Magazine"
+    Movies_and_TV: "Movies"
+    Musical_Instruments: "Instruments"
+    Office_Products: "Office"
+    Patio_Lawn_and_Garden: "Garden"
+    Pet_Supplies: "Pet"
+    Prime_Pantry: "Pantry"
+    Software: "Software"
+    Sports_and_Outdoors: "Sports"
+    Tools_and_Home_Improvement: "Tools"
+    Toys_and_Games: "Toys"
+    Video_Games: "Games"

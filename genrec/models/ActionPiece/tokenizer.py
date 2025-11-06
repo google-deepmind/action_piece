@@ -143,18 +143,26 @@ class ActionPieceTokenizer(AbstractTokenizer):
         Fused multimodal embeddings, shape (N_items-1, final_dim)
     """
 
-    # 🔧 硬编码配置
-    IMAGE_PATH_TEMPLATE = "/scratch/zl4789/MQL4GRec/data_process/MQL4GRec/{category}/{category}.emb-ViT-L-14.npy"
-    USE_MULTIMODAL = True
-    IMAGE_PCA_DIM = 128
-    FINAL_PCA_DIM = 128
-    FILL_STRATEGY = 'zero'  # Options: 'zero', 'mean'
-    
+    # Load multimodal configuration
+    multimodal_config = self.config.get('multimodal', {})
+    USE_MULTIMODAL = multimodal_config.get('enable', False)
+    IMAGE_PATH_TEMPLATE = multimodal_config.get('image_path_template', '')
+    IMAGE_PCA_DIM = multimodal_config.get('image_pca_dim', 128)
+    FINAL_PCA_DIM = multimodal_config.get('final_pca_dim', 128)
+    FILL_STRATEGY = multimodal_config.get('fill_strategy', 'zero')
+
     if not USE_MULTIMODAL:
+      self.logger.info('[TOKENIZER] Multimodal mode disabled. Using text-only embeddings.')
       return text_embs
 
     # 1. 构建图像embedding路径
-    image_path = IMAGE_PATH_TEMPLATE.format(category="CDs")
+    # Get category from dataset (e.g., "CDs_and_Vinyl" -> "CDs")
+    category_name = getattr(dataset, 'category', self.config.get('category', 'Unknown'))
+    # Optionally simplify category name for path mapping (e.g., CDs_and_Vinyl -> CDs)
+    category_short = multimodal_config.get('category_mapping', {}).get(
+        category_name, category_name.split('_')[0] if '_' in category_name else category_name
+    )
+    image_path = IMAGE_PATH_TEMPLATE.format(category=category_short)
 
     if not os.path.exists(image_path):
       self.logger.warning(

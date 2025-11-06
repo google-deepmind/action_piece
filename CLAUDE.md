@@ -135,6 +135,83 @@ The `genrec.utils.get_config()` function merges these layers.
 - **Model checkpoints**: `ckpt/` (configured via `--ckpt_dir`)
 - **Logs**: `logs/` (configured via `--log_dir`)
 
+## Multimodal Configuration
+
+ActionPiece supports integrating image embeddings with text embeddings for richer item representations. This feature can be configured through the configuration system.
+
+### Configuration Options
+
+All multimodal settings are in `genrec/models/ActionPiece/config.yaml` under the `multimodal` section:
+
+```yaml
+multimodal:
+  enable: true  # Enable/disable multimodal fusion
+  image_path_template: "/path/to/{category}/{category}.emb-ViT-L-14.npy"
+  image_pca_dim: 128  # PCA dimension for image embeddings
+  final_pca_dim: 128  # Final dimension after text+image fusion (0 to disable)
+  fill_strategy: "zero"  # How to handle missing images: "zero" or "mean"
+  # Complete category mapping for Amazon 2018 dataset (full name -> short name)
+  category_mapping:
+    All_Beauty: "Beauty"
+    CDs_and_Vinyl: "CDs"
+    Sports_and_Outdoors: "Sports"
+    # ... (29 categories total, see config.yaml for full list)
+```
+
+The `category_mapping` automatically converts full category names (e.g., `CDs_and_Vinyl`) to short names (e.g., `CDs`) for constructing image file paths. This supports all 29 Amazon 2018 categories.
+
+### How Category Mapping Works
+
+When you run:
+```bash
+python main.py --category=CDs_and_Vinyl
+```
+
+The system automatically:
+1. Detects full category name: `CDs_and_Vinyl`
+2. Maps it to short name via `category_mapping`: `CDs`
+3. Constructs image path: `/path/to/CDs/CDs.emb-ViT-L-14.npy`
+
+If a category is not in the mapping, it defaults to the first part before underscore (e.g., `New_Category` → `New`).
+
+### Command-line Override
+
+You can override these settings via command-line:
+
+```bash
+python main.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --multimodal.final_pca_dim=256
+```
+
+### Image Embedding Format
+
+Image embeddings should be saved as `.npy` files in dictionary format:
+
+```python
+{
+    'asins': ['B001...', 'B002...', ...],  # List of ASINs
+    'embeddings': np.array([...])  # Shape: (N_items, embedding_dim)
+}
+```
+
+The tokenizer automatically aligns image embeddings with text embeddings using ASIN matching.
+
+### Missing Images Handling
+
+- **`fill_strategy: "zero"`**: Use zero vectors for items without images
+- **`fill_strategy: "mean"`**: Use mean of available image embeddings
+
+### Cached Files
+
+Multimodal processing creates cached files in `cache/AmazonReviews2014/{category}/processed/`:
+- `image_pca_{dim}_{strategy}.npy`: PCA-reduced image embeddings
+- `multimodal_final_pca_{dim}_{strategy}.npy`: Final fused embeddings
+
+Clear these caches if you change image embeddings or fusion parameters.
+
 ## Working with GRAM Features
 
 GRAM (Generative Recommendation with Augmented Metadata) is an experimental extension that adds richer item representations:
