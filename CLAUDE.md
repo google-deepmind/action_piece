@@ -30,10 +30,42 @@ conda activate TIGER
 
 ### Running Training
 
-**Basic training (standard ActionPiece):**
+ActionPiece supports two workflows:
+
+#### Workflow 1: All-in-One (Original)
+Build vocabulary and train in a single step:
 ```bash
 CUDA_VISIBLE_DEVICES=0 python main.py --category=Sports_and_Outdoors
 ```
+
+#### Workflow 2: Two-Step (Recommended for Experimentation)
+**Step 1: Build vocabulary once**
+```bash
+# Build vocabulary for a category (only needs to be done once)
+python build_vocab.py --category=CDs_and_Vinyl --rand_seed=42
+```
+
+**Step 2: Train multiple times with different hyperparameters**
+```bash
+# First training run
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=CDs_and_Vinyl \
+    --rand_seed=42 \
+    --lr=0.001 \
+    --d_model=256
+
+# Second training run (vocabulary already built, just train)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=CDs_and_Vinyl \
+    --rand_seed=43 \
+    --lr=0.005 \
+    --d_model=512
+```
+
+**Advantages of two-step workflow:**
+- Vocabulary construction can be time-consuming (especially for large datasets)
+- Build vocabulary once, experiment with different training hyperparameters multiple times
+- Clearer separation of data preprocessing and model training
 
 **Training with GRAM features:**
 ```bash
@@ -47,14 +79,23 @@ python main_actionpiece_gram.py \
     --train --eval
 ```
 
-**Training with multimodal features:**
+**Two-step workflow with multimodal features:**
 ```bash
-CUDA_VISIBLE_DEVICES=0 python main.py \
+# Step 1: Build vocabulary with multimodal features
+python build_vocab.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --rand_seed=42
+
+# Step 2: Train with different hyperparameters
+CUDA_VISIBLE_DEVICES=0 python train.py \
     --category=CDs_and_Vinyl \
     --multimodal.enable=true \
     --multimodal.image_pca_dim=256 \
     --rand_seed=42 \
-    --lr=0.001
+    --lr=0.001 \
+    --d_model=256
 ```
 
 **Common hyperparameters** (see `genrec/default.yaml`, `genrec/models/ActionPiece/config.yaml`, `genrec/datasets/AmazonReviews2014/config.yaml`):
@@ -133,6 +174,11 @@ Configuration is hierarchical with precedence order (highest to lowest):
 The `genrec.utils.get_config()` function merges these layers.
 
 ## Important File Paths
+
+### Entry Points
+- **`main.py`**: All-in-one training (builds vocabulary + trains model)
+- **`build_vocab.py`**: Build ActionPiece vocabulary only (no training)
+- **`train.py`**: Train model using pre-built vocabulary
 
 ### Core Implementation
 - **Vocabulary construction**: `genrec/models/ActionPiece/core.py:ActionPieceCore.train()`
@@ -297,6 +343,81 @@ Deterministic behavior is enforced when `reproducibility: true` in config (defau
 - **main**: Stable release with standard ActionPiece
 - **gram**: Experimental branch with GRAM feature integration
 
+## Complete Workflow Examples
+
+### Example 1: Quick Start (All-in-One)
+```bash
+# Single command: build vocab + train
+CUDA_VISIBLE_DEVICES=0 python main.py \
+    --category=CDs_and_Vinyl \
+    --rand_seed=42 \
+    --lr=0.001
+```
+
+### Example 2: Hyperparameter Tuning (Two-Step)
+```bash
+# Step 1: Build vocabulary once (takes time)
+python build_vocab.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --multimodal.final_pca_dim=256 \
+    --rand_seed=42
+
+# Step 2a: First training run
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --multimodal.final_pca_dim=256 \
+    --rand_seed=42 \
+    --lr=0.001 \
+    --d_model=256 \
+    --d_ff=2048
+
+# Step 2b: Second training run (different lr, no vocab rebuild)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --multimodal.final_pca_dim=256 \
+    --rand_seed=42 \
+    --lr=0.005 \
+    --d_model=256 \
+    --d_ff=2048
+
+# Step 2c: Third training run (different model size)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --multimodal.final_pca_dim=256 \
+    --rand_seed=42 \
+    --lr=0.001 \
+    --d_model=512 \
+    --d_ff=4096
+```
+
+### Example 3: Compare Text-Only vs Multimodal
+```bash
+# Build vocabulary with multimodal
+python build_vocab.py \
+    --category=Sports_and_Outdoors \
+    --multimodal.enable=true
+
+# Train with multimodal
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=Sports_and_Outdoors \
+    --multimodal.enable=true \
+    --rand_seed=42
+
+# Train without multimodal (text-only, uses same vocab structure)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --category=Sports_and_Outdoors \
+    --multimodal.enable=false \
+    --rand_seed=42
+```
+
 ## Notes for Development
 
 - **Tokenizer caching**: Vocabularies are cached by a hash of construction parameters. Changing feature extraction or merging logic requires clearing the cache manually.
@@ -304,3 +425,4 @@ Deterministic behavior is enforced when `reproducibility: true` in config (defau
 - **Memory requirements**: Training requires ~16GB GPU memory for default hyperparameters. Reduce `batch_size` or `d_model` if OOM occurs.
 - **Distributed training**: Use `CUDA_VISIBLE_DEVICES=0,1,2,3` with `--distributed` flag. Not required for single GPU.
 - **Early stopping**: Controlled by `patience` parameter (default: 20 epochs without improvement on `val_metric`).
+- **Vocabulary reuse**: Once built, the vocabulary file (`cache/.../processed/actionpiece.json`) can be reused for multiple training runs with the same category and feature configuration.
