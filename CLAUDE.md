@@ -47,12 +47,25 @@ python main_actionpiece_gram.py \
     --train --eval
 ```
 
+**Training with multimodal features:**
+```bash
+CUDA_VISIBLE_DEVICES=0 python main.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=true \
+    --multimodal.image_pca_dim=256 \
+    --rand_seed=42 \
+    --lr=0.001
+```
+
 **Common hyperparameters** (see `genrec/default.yaml`, `genrec/models/ActionPiece/config.yaml`, `genrec/datasets/AmazonReviews2014/config.yaml`):
 - `--category`: Dataset category (Beauty, Sports_and_Outdoors, CDs_and_Vinyl)
 - `--lr`: Learning rate (0.001-0.005)
 - `--weight_decay`: Weight decay (0.07-0.15)
 - `--n_hash_buckets`: Number of hash buckets (64-256)
 - `--rand_seed`: Random seed for reproducibility (default: 2024)
+- `--multimodal.enable`: Enable/disable multimodal features (true/false)
+- `--multimodal.image_pca_dim`: Image embedding PCA dimension (default: 128)
+- `--multimodal.final_pca_dim`: Final fused embedding dimension (default: 128)
 
 ### Testing
 
@@ -176,15 +189,33 @@ If a category is not in the mapping, it defaults to the first part before unders
 
 ### Command-line Override
 
-You can override these settings via command-line:
+You can override multimodal settings via command-line using dot notation:
 
 ```bash
-python main.py \
+# Enable multimodal with custom dimensions
+CUDA_VISIBLE_DEVICES=0 python main.py \
     --category=CDs_and_Vinyl \
     --multimodal.enable=true \
     --multimodal.image_pca_dim=256 \
-    --multimodal.final_pca_dim=256
+    --multimodal.final_pca_dim=256 \
+    --lr=0.001 \
+    --d_model=256
+
+# Disable multimodal (text-only mode)
+CUDA_VISIBLE_DEVICES=0 python main.py \
+    --category=CDs_and_Vinyl \
+    --multimodal.enable=false \
+    --lr=0.001 \
+    --d_model=256
+
+# Change fill strategy for missing images
+CUDA_VISIBLE_DEVICES=0 python main.py \
+    --category=Sports_and_Outdoors \
+    --multimodal.fill_strategy=mean \
+    --rand_seed=42
 ```
+
+The dot notation (`--multimodal.enable`) allows you to override specific nested configuration values without modifying the config file.
 
 ### Image Embedding Format
 
