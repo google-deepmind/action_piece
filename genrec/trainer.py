@@ -72,21 +72,48 @@ def get_command_line_args_str():
   return '_'.join(filtered_args).replace('/', '|')
 
 def config_for_log(config: dict[str, Any]) -> dict[str, Any]:
-  """Prepares the configuration dictionary for logging by removing unnecessary keys and converting list values to strings.
+  """Prepares the configuration dictionary for logging by removing unnecessary keys and converting complex values to TensorBoard-compatible types.
 
   Args:
       config (dict): The configuration dictionary.
 
   Returns:
-      dict: The configuration dictionary prepared for logging.
+      dict: The configuration dictionary prepared for logging (flattened, with only int, float, str, bool types).
   """
-  config = config.copy()
+  def flatten_dict(d: dict, parent_key: str = '', sep: str = '.') -> dict:
+    """Flatten nested dictionaries with dot notation."""
+    items = []
+    for k, v in d.items():
+      new_key = f'{parent_key}{sep}{k}' if parent_key else k
+      if isinstance(v, dict):
+        items.extend(flatten_dict(v, new_key, sep=sep).items())
+      else:
+        items.append((new_key, v))
+    return dict(items)
+
+  # First flatten the config
+  config = flatten_dict(config)
+
+  # Remove unnecessary keys
   config.pop('device', None)
   config.pop('accelerator', None)
+
+  # Convert all values to TensorBoard-compatible types
+  cleaned_config = {}
   for k, v in config.items():
-    if isinstance(v, list):
-      config[k] = str(v)
-  return config
+    if isinstance(v, (int, float, str, bool)):
+      cleaned_config[k] = v
+    elif isinstance(v, (list, tuple)):
+      cleaned_config[k] = str(v)
+    elif v is None:
+      cleaned_config[k] = 'None'
+    elif isinstance(v, torch.Tensor):
+      cleaned_config[k] = v
+    else:
+      # Convert any other type to string
+      cleaned_config[k] = str(v)
+
+  return cleaned_config
 
 def get_file_name(config: dict[str, Any], suffix: str = '') -> str:
   """Generates a unique file name based on the given configuration and suffix.
