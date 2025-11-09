@@ -16,5 +16,5 @@ python build_vocab.py   \
     --multimodal.enable=true             \
     --multimodal.image_pca_dim=256       \
     --multimodal.final_pca_dim=256       \
-    --dataset=AmazonReviews2018
+    --dataset=AmazonReviews2014
 conda deactivate

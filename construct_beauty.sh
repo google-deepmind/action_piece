@@ -13,9 +13,8 @@ conda activate TIGER
 cd /scratch/zl4789/action_piece_google
 
 python build_vocab.py   \
-    --category=All_Beauty             \
-    --multimodal.enable=true             \
-    --multimodal.image_pca_dim=256       \
-    --multimodal.final_pca_dim=256       \
-    --dataset=AmazonReviews2018
+    --category=Beauty             \
+    --multimodal.enable=false             \
+    --dataset=AmazonReviews2014    \
+    --n_hash_buckets=64
 conda deactivate
