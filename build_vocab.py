@@ -129,7 +129,7 @@ def build_vocabulary(model_name: str, dataset_name: str, config_dict: dict):
 
   # Get vocabulary path
   vocab_path = os.path.join(
-      raw_dataset.cache_dir, 'processed/actionpiece.json'
+      raw_dataset.cache_dir, 'processed/actionpieceablation.json'
   )
 
   # Report results

@@ -314,49 +314,52 @@ class ActionPieceTokenizer(AbstractTokenizer):
         f'[TOKENIZER] Image embeddings after PCA: {image_embs_reduced.shape}'
     )
 
-    # 7. 拼接文本和降维后的图像
-    self.logger.info('[TOKENIZER] Fusing text and image embeddings...')
-    fused_embs = np.concatenate([text_embs, image_embs_reduced], axis=1)
-    self.logger.info(
-        f'[TOKENIZER] Fused embeddings shape: {fused_embs.shape} '
-        f'(text:{text_embs.shape[1]}D + image:{image_embs_reduced.shape[1]}D)'
-    )
+    # ablation study only!
+    return image_embs_reduced
 
-    # 8. 对拼接后的embedding再做一次PCA
-    if FINAL_PCA_DIM > 0:
-      # 缓存文件名包含填充策略以区分不同版本
-      final_pca_cache_path = os.path.join(
-          dataset.cache_dir,
-          'processed',
-          f'multimodal_final_pca_{FINAL_PCA_DIM}_{FILL_STRATEGY}.npy'
-      )
+    # # 7. 拼接文本和降维后的图像
+    # self.logger.info('[TOKENIZER] Fusing text and image embeddings...')
+    # fused_embs = np.concatenate([text_embs, image_embs_reduced], axis=1)
+    # self.logger.info(
+    #     f'[TOKENIZER] Fused embeddings shape: {fused_embs.shape} '
+    #     f'(text:{text_embs.shape[1]}D + image:{image_embs_reduced.shape[1]}D)'
+    # )
 
-      if os.path.exists(final_pca_cache_path):
-        self.logger.info(
-            f'[TOKENIZER] Loading cached final multimodal embeddings...'
-        )
-        final_embs = np.load(final_pca_cache_path)
-      else:
-        self.logger.info(
-            f'[TOKENIZER] Applying final PCA: {fused_embs.shape[1]}D → {FINAL_PCA_DIM}D'
-        )
-        final_pca = PCA(n_components=FINAL_PCA_DIM, whiten=True)
-        final_embs = final_pca.fit_transform(fused_embs)
+    # # 8. 对拼接后的embedding再做一次PCA
+    # if FINAL_PCA_DIM > 0:
+    #   # 缓存文件名包含填充策略以区分不同版本
+    #   final_pca_cache_path = os.path.join(
+    #       dataset.cache_dir,
+    #       'processed',
+    #       f'multimodal_final_pca_{FINAL_PCA_DIM}_{FILL_STRATEGY}.npy'
+    #   )
 
-        # 保存cache
-        np.save(final_pca_cache_path, final_embs)
-        self.logger.info(f'[TOKENIZER] Cached to {final_pca_cache_path}')
+    #   if os.path.exists(final_pca_cache_path):
+    #     self.logger.info(
+    #         f'[TOKENIZER] Loading cached final multimodal embeddings...'
+    #     )
+    #     final_embs = np.load(final_pca_cache_path)
+    #   else:
+    #     self.logger.info(
+    #         f'[TOKENIZER] Applying final PCA: {fused_embs.shape[1]}D → {FINAL_PCA_DIM}D'
+    #     )
+    #     final_pca = PCA(n_components=FINAL_PCA_DIM, whiten=True)
+    #     final_embs = final_pca.fit_transform(fused_embs)
 
-      self.logger.info(
-          f'[TOKENIZER] ✓ Multimodal fusion complete: {final_embs.shape}'
-      )
-      return final_embs
-    else:
-      # 不做最终PCA，直接返回拼接结果
-      self.logger.info(
-          f'[TOKENIZER] ✓ Multimodal fusion complete: {fused_embs.shape} (no final PCA)'
-      )
-      return fused_embs
+    #     # 保存cache
+    #     np.save(final_pca_cache_path, final_embs)
+    #     self.logger.info(f'[TOKENIZER] Cached to {final_pca_cache_path}')
+
+    #   self.logger.info(
+    #       f'[TOKENIZER] ✓ Multimodal fusion complete: {final_embs.shape}'
+    #   )
+    #   return final_embs
+    # else:
+    #   # 不做最终PCA，直接返回拼接结果
+    #   self.logger.info(
+    #       f'[TOKENIZER] ✓ Multimodal fusion complete: {fused_embs.shape} (no final PCA)'
+    #   )
+    #   return fused_embs
 
   def _get_sent_embs(self, dataset: AbstractDataset) -> np.ndarray:
     # Load or encode sentence embeddings
