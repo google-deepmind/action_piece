@@ -38,7 +38,9 @@ def diff_cnt(cnt1, cnt2):
   Returns:
       dict: A duplication, not inplace.
   """
-  return {k: v - cnt2.get(k, 0) for k, v in cnt1.items()}
+  # Include all keys from both dictionaries to detect both new and disappeared pairs
+  all_keys = set(cnt1.keys()) | set(cnt2.keys())
+  return {k: cnt1.get(k, 0) - cnt2.get(k, 0) for k in all_keys}
 
 
 def add_cnt_inplace(cnt1, cnt2):
