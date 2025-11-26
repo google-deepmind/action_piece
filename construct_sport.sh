@@ -14,7 +14,9 @@ cd /scratch/zl4789/action_piece_google
 python build_vocab.py   \
     --category=Sports_and_Outdoors             \
     --multimodal.enable=true             \
-    --multimodal.image_pca_dim=256       \
+    --multimodal.image_pca_dim=128       \
     --multimodal.final_pca_dim=256       \
+    --n_hash_buckets=256       \
     --dataset=AmazonReviews2018
 conda deactivate
+

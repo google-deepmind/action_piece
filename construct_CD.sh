@@ -15,7 +15,9 @@ python build_vocab.py   \
     --category=CDs_and_Vinyl             \
     --multimodal.enable=true             \
     --multimodal.image_pca_dim=128       \
-    --multimodal.final_pca_dim=128       \
+    --multimodal.final_pca_dim=256       \
+    --n_hash_buckets=64       \
     --dataset=AmazonReviews2018
 
 conda deactivate
+
